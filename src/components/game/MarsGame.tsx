@@ -156,9 +156,9 @@ export function MarsGame() {
       // Priorities drive the alert sound, PIP warning and the one guidance arrow
       const list = cur.status === "day" && !briefRef.current ? priorities(cur) : [];
       const top = pickPrimary(list, primaryRef.current);
-      if ((top?.id ?? null) !== primaryRef.current) {
-        primaryRef.current = top?.id ?? null; setPrimary(top);
-        if (top && top.level <= 2) { play(top.level === 1 ? "critical" : "alert", top.id); setPip(`⚠️ ${top.title}! ${top.action}`); }
+      if ((top?.id ?? null) !== primaryRef.current || (top?.level ?? null) !== primaryLevelRef.current) {
+        primaryRef.current = top?.id ?? null; primaryLevelRef.current = top?.level ?? null; setPrimary(top);
+        if (top && top.level <= 2) { play(top.level === 1 ? "critical" : "alert", `${top.id}-${top.level}`); setPip(`⚠️ ${top.title}! ${top.action}`); }
         else if (top && top.level === 4 && top.id.startsWith("obj-")) play("objective");
       } else if (top) setPrimary(top);
       const bp = cur.broken ? stationPoint(BREAK_STATION[cur.broken]) : null;

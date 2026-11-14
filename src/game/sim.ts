@@ -579,7 +579,7 @@ export function report(s: Sim) {
   const grade = s.status !== "won" ? (total >= 12 ? "Brave try" : "Training mission") : supplies >= 40 && s.condition >= 60 && s.objective >= 7 ? "Sustainable outpost ⭐⭐⭐" : s.condition >= 40 && s.objective >= 4 ? "Working outpost ⭐⭐" : "Survived, just barely ⭐";
   const strengths = ratings.filter((x) => x.stars === 3).map((x) => `${x.icon} ${x.note}`);
   const improve = ratings.filter((x) => x.stars === 1).map((x) => `${x.icon} ${x.note}`);
-  const worst = Object.entries(s.damage).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const worst = s.failureCause ?? Object.entries(s.damage).sort((a, b) => b[1] - a[1])[0]?.[0];
   const cause = s.status === "lost" && worst ? CAUSES[worst] : undefined;
   const decisions = s.log.filter((l) => l.icon === "🗳️").map((l) => l.text.replace("Decision: ", ""));
   return { solsSurvived, ratings, grade, strengths, improve, cause, decisions, supplies };
