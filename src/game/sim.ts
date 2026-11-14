@@ -140,7 +140,7 @@ export function tick(prev: Sim, dt: number): Sim {
   const unpowered = new Set<SystemId>();
   let usage = 0, food = 0, water = 0;
   const use = (e: number) => { usage += e; if (s.energy >= e * k) { s.energy -= e * k; return true; } s.energy = 0; return false; };
-  const wanted = (f: Facility) => f.remaining <= 0 && f.enabled && !(f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") && !s.systems[f.kind]);
+  const wanted = (f: Facility) => f.remaining <= 0 && (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") ? s.systems[f.kind] : f.enabled);
   const stop = (f: Facility) => { s.facilityUnpowered.push(f.id); if (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") unpowered.add(f.kind); };
   const baseOk = use(RATES.baseEnergy);
   for (const f of s.facilities.filter((f) => f.kind === "oxygen" && wanted(f))) {
