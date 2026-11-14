@@ -42,6 +42,55 @@ export const TECHS: Record<TechId, { name: string; energy: number; materials: nu
 };
 const has = (s: Sim, t: TechId) => s.research.includes(t);
 
+export function facilityDamaged(s: Sim, f: Facility): boolean {
+  if (f.damaged) return true;
+  if (!f.primary || !s.broken) return false;
+  return (s.broken === "oxygen" && f.kind === "oxygen") || (s.broken === "greenhouse" && f.kind === "greenhouse")
+    || (s.broken === "drill" && f.kind === "drill") || (s.broken === "panels" && f.kind === "solar");
+}
+export function facilitySwitchedOn(s: Sim, f: Facility): boolean {
+  if (f.remaining > 0 || !f.enabled || facilityDamaged(s, f)) return false;
+  if (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill")) return s.systems[f.kind];
+  return true;
+}
+export function facilityWorking(s: Sim, f: Facility): boolean {
+  return facilitySwitchedOn(s, f) && !s.facilityUnpowered.includes(f.id);
+}
+export function capacityOf(s: Sim): number {
+  return s.capacity + s.facilities.filter((f) => f.kind === "storage" && f.built && facilityWorking(s, f)).length * 30;
+}
+export function shieldOf(s: Sim): number {
+  const extra = s.facilities.filter((f) => f.kind === "shelter" && f.built && facilityWorking(s, f)).length * 8;
+  return clamp(s.shield + extra, 0, 95);
+}
+export function crewSupplyFactor(s: Sim): number {
+  const extra = s.facilities.filter((f) => f.kind === "hab" && f.built && facilityWorking(s, f)).length;
+  return 1 - Math.min(0.24, extra * 0.08);
+}
+export function researchCost(s: Sim, t: TechId) {
+  const extra = s.facilities.filter((f) => f.kind === "lab" && f.built && facilityWorking(s, f)).length;
+  const discount = 1 - Math.min(0.3, extra * 0.15), base = TECHS[t];
+  return { materials: Math.ceil(base.materials * discount), energy: Math.ceil(base.energy * discount) };
+}
+export function missingForCost(s: Sim, cost: { materials: number; energy: number }): string[] {
+  const missing: string[] = [];
+  if (s.materials < cost.materials) missing.push(`${cost.materials - s.materials} more materials`);
+  if (s.energy < cost.energy) missing.push(`${Math.ceil(cost.energy - s.energy)} more energy`);
+  return missing;
+}
+export type FacilityStatus = "operational" | "inactive" | "damaged" | "construction" | "unpowered";
+export interface FacilityView extends Facility {
+  name: string; icon: string; status: FacilityStatus; essential: boolean; controllable: boolean; description: string; warning?: string;
+}
+export function facilityViews(s: Sim): FacilityView[] {
+  return s.facilities.map((f) => {
+    const def = BUILD_DEFS[f.kind as BuildableKind];
+    const status: FacilityStatus = facilityDamaged(s, f) ? "damaged" : f.remaining > 0 ? "construction" : !facilitySwitchedOn(s, f) ? "inactive" : s.facilityUnpowered.includes(f.id) ? "unpowered" : "operational";
+    return { ...f, name: facilityName(f), icon: facilityIcon(f.kind), status, essential: def?.essential ?? false,
+      controllable: def?.controllable ?? false, description: def?.description ?? (f.kind === "rover" ? "Collects building materials once each Sol." : f.kind === "antenna" ? "Keeps the base connected to Earth." : "The crew's arrival vehicle and landing-zone landmark."), warning: def?.warning };
+  });
+}
+
 export function newSim(): Sim {
   return { sol: 1, time: 0, status: "day", oxygen: 80, water: 70, food: 60, energy: 70, shield: 30, condition: 100, exposure: 0,
     materials: 40, lifeSupport: 80, panels: 100, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
