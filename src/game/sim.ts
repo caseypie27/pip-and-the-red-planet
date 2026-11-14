@@ -241,7 +241,7 @@ function baseActions(station: string, s: Sim): Action[] {
     ];
     case "greenhouse": return [{ id: "toggle-greenhouse", label: `Grow food: ${s.systems.greenhouse ? "ON" : "OFF"}` }];
     case "drill": return [{ id: "toggle-drill", label: `Ice drill: ${s.systems.drill ? "ON" : "OFF"}` }, { id: "drill-mode", label: `Speed: ${s.drillHigh ? "FAST (more water, much more energy)" : "NORMAL (saves energy)"}` }];
-    case "lab": return (Object.keys(TECHS) as TechId[]).filter((t) => !has(s, t)).map((t) => ({ id: `tech-${t}`, label: `${TECHS[t].name}: ${TECHS[t].desc}`, cost: `${TECHS[t].materials} 🔩 + ${TECHS[t].energy} ⚡` }));
+    case "lab": return (Object.keys(TECHS) as TechId[]).filter((t) => !has(s, t)).map((t) => { const c = researchCost(s, t); return { id: `tech-${t}`, label: `${TECHS[t].name}: ${TECHS[t].desc}`, cost: `${c.materials} 🔩 + ${c.energy} ⚡` }; });
     case "shelter": return [{ id: "shield", label: `Upgrade shielding (${Math.round(s.shield)}%)`, cost: "25 🔩 + 20 ⚡" }];
     case "hab": return [
       { id: "repair-base", label: `Repair base (${Math.round(s.condition)}%)`, cost: "15 🔩 + 10 ⚡" },
@@ -256,12 +256,48 @@ function baseActions(station: string, s: Sim): Action[] {
 
 /** Perform an action. Returns the new state and a message for PIP. */
 export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
-  const s: Sim = { ...prev, systems: { ...prev.systems } };
+  const s: Sim = { ...prev, systems: { ...prev.systems }, facilities: prev.facilities.map((f) => ({ ...f })) };
   const no = (m: string) => ({ sim: prev, msg: m });
   if (s.status === "won" || s.status === "lost") return no("The mission is over.");
+  if (id.startsWith("build:")) {
+    const [, rawKind, rawX, rawY] = id.split(":");
+    const kind = rawKind as BuildableKind, x = Number(rawX), y = Number(rawY);
+    if (!BUILDABLE_KINDS.includes(kind)) return no("Choose a valid facility.");
+    const def = BUILD_DEFS[kind], site = canPlace(s.facilities, kind, x, y);
+    if (!site.ok) return no(site.reason);
+    const missing = missingForCost(s, def.cost);
+    if (missing.length) return no(`Construction needs ${missing.join(" and ")}.`);
+    const rect = placementRect(kind, x, y);
+    const facility: Facility = { id: `built-${s.nextFacility}`, kind, ...rect, enabled: true, remaining: def.duration, damaged: false, primary: false, built: true };
+    s.nextFacility += 1; s.materials -= def.cost.materials; s.energy -= def.cost.energy; s.facilities.push(facility);
+    addLog(s, "🔨", `Started ${def.name} for ${def.cost.materials} materials + ${def.cost.energy} energy`);
+    return { sim: s, msg: `${def.name} confirmed! Construction will take ${def.duration} seconds of mission time.` };
+  }
+  if (id.startsWith("facility-toggle:")) {
+    const fid = id.slice("facility-toggle:".length), f = s.facilities.find((x) => x.id === fid), view = f ? facilityViews(s).find((x) => x.id === fid) : null;
+    if (!f || !view) return no("That facility is not available.");
+    if (!view.controllable) return no("This facility stays on automatically.");
+    if (f.remaining > 0) return no("Wait until construction is complete.");
+    if (facilityDamaged(s, f)) return no("Repair this facility before switching it on.");
+    f.enabled = !f.enabled;
+    if (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill")) s.systems[f.kind] = f.enabled;
+    addLog(s, f.enabled ? "✅" : "⏸️", `${facilityName(f)} switched ${f.enabled ? "ON" : "OFF"}`);
+    return { sim: s, msg: `${facilityName(f)} switched ${f.enabled ? "ON — connected to the resource network" : "OFF — its production and running use have stopped"}.` };
+  }
+  if (id.startsWith("facility-repair:")) {
+    const fid = id.slice("facility-repair:".length), f = s.facilities.find((x) => x.id === fid);
+    if (!f || !facilityDamaged(s, f)) return no("This facility does not need repair.");
+    if (s.materials < 10) return no("Repairs need 10 materials. Try the rover!");
+    s.materials -= 10; f.damaged = false;
+    if (f.primary && ((f.kind === "oxygen" && s.broken === "oxygen") || (f.kind === "greenhouse" && s.broken === "greenhouse") || (f.kind === "drill" && s.broken === "drill") || (f.kind === "solar" && s.broken === "panels"))) s.broken = null;
+    addLog(s, "🔧", `Repaired ${facilityName(f)}`);
+    return { sim: s, msg: `${facilityName(f)} repaired! It can operate again.` };
+  }
   switch (id) {
     case "toggle-oxygen": case "toggle-greenhouse": case "toggle-drill": {
       const sys = id.slice(7) as SystemId; s.systems[sys] = !s.systems[sys];
+      const primary = s.facilities.find((f) => f.primary && f.kind === sys);
+      if (primary) primary.enabled = s.systems[sys];
       const names = { oxygen: "Oxygen generator", greenhouse: "Greenhouse", drill: "Ice drill" };
       return { sim: s, msg: `${names[sys]} switched ${s.systems[sys] ? "ON — it uses energy" : "OFF — saving energy"}.` };
     }
@@ -307,9 +343,9 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
     const site = SITES.find((x) => x.id === id.slice(7));
     if (!site || s.reviewed.includes(site.id)) return no("Already studied!");
     s.reviewed = [...s.reviewed, site.id]; const g = site.reward;
-    if (g.water) s.water = clamp(s.water + g.water, 0, s.capacity);
+    if (g.water) s.water = clamp(s.water + g.water, 0, capacityOf(s));
     if (g.materials) s.materials += g.materials;
-    if (g.food) s.food = clamp(s.food + g.food, 0, s.capacity);
+    if (g.food) s.food = clamp(s.food + g.food, 0, capacityOf(s));
     if (g.energy) s.energy = clamp(s.energy + g.energy);
     if (g.shield) s.shield = clamp(s.shield + g.shield, 0, 90);
     if (g.lifeSupport) s.lifeSupport = clamp(s.lifeSupport + g.lifeSupport);
@@ -319,8 +355,10 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
   if (id.startsWith("tech-")) {
     const t = id.slice(5) as TechId, T = TECHS[t];
     if (!T || has(s, t)) return no("Already researched!");
-    if (s.materials < T.materials || s.energy < T.energy) return no(`Research needs ${T.materials} materials and ${T.energy} energy. Spending energy here means less for food and water!`);
-    s.materials -= T.materials; s.energy -= T.energy; s.research = [...s.research, t]; addLog(s, "🧪", `Researched ${T.name}`);
+    if (!s.facilities.some((f) => f.kind === "lab" && facilityWorking(s, f))) return no("Switch on a Research Laboratory first.");
+    const cost = researchCost(s, t);
+    if (s.materials < cost.materials || s.energy < cost.energy) return no(`Research needs ${cost.materials} materials and ${cost.energy} energy. Spending energy here means less for food and water!`);
+    s.materials -= cost.materials; s.energy -= cost.energy; s.research = [...s.research, t]; addLog(s, "🧪", `Researched ${T.name}`);
     return { sim: s, msg: `Research complete: ${T.name}! ${T.desc}.` };
   }
   return no("");
