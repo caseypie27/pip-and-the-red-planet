@@ -1,31 +1,14 @@
 import type { Landmark, Rect } from "./types";
 import { SITES } from "./sim";
+import { BASE_BUILDINGS, BUILD_DEFS, getDeco, placementRect, WORLD_H, WORLD_W, SKY_H, SPAWN, type BaseBuilding, type BuildableKind, type Facility } from "./facilities";
 
-export const WORLD_W = 3200;
-export const WORLD_H = 2400;
-export const SKY_H = 360; // northern horizon band (not walkable)
-export const SPAWN = { x: 1600, y: 1500 };
+export { WORLD_W, WORLD_H, SKY_H, SPAWN } from "./facilities";
+export type Building = BaseBuilding;
+export const BUILDINGS: Building[] = BASE_BUILDINGS;
 
 function rng(seed: number) {
   return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
 }
-
-export interface Building { kind: "dome" | "hab" | "lab" | "greenhouse" | "lander" | "antenna" | "solar" | "rover" | "drill" | "shelter" | "storage"; x: number; y: number; w: number; h: number }
-
-export const BUILDINGS: Building[] = [
-  { kind: "lander", x: 1560, y: 1660, w: 170, h: 150 },
-  { kind: "dome", x: 1350, y: 1050, w: 260, h: 200 },
-  { kind: "hab", x: 1700, y: 1080, w: 240, h: 150 },
-  { kind: "greenhouse", x: 1050, y: 1300, w: 220, h: 150 },
-  { kind: "lab", x: 2050, y: 1350, w: 200, h: 150 },
-  { kind: "antenna", x: 2450, y: 800, w: 120, h: 120 },
-  { kind: "solar", x: 700, y: 800, w: 300, h: 180 },
-  { kind: "solar", x: 2200, y: 1800, w: 300, h: 180 },
-  { kind: "rover", x: 900, y: 1850, w: 140, h: 90 },
-  { kind: "shelter", x: 2350, y: 1100, w: 170, h: 110 },
-  { kind: "storage", x: 1230, y: 1650, w: 170, h: 110 },
-  { kind: "drill", x: 2750, y: 1250, w: 130, h: 150 },
-];
 
 export const LANDMARKS: Landmark[] = [
   { id: "lander", name: "Landing Zone", x: 1645, y: 1735, r: 200, pip: "This is where we landed! Our lander brought supplies all the way from Earth." },
@@ -40,25 +23,10 @@ export const LANDMARKS: Landmark[] = [
   { id: "crater", name: "Big Crater", x: 2600, y: 1950, r: 260, pip: "Whoa, a crater! It formed when a space rock crashed into Mars long ago." },
 ];
 
-export interface Deco { rocks: { x: number; y: number; r: number }[]; craters: { x: number; y: number; r: number }[] }
-
-let cachedDeco: Deco | null = null;
-export function getDeco(): Deco {
-  if (cachedDeco) return cachedDeco;
-  const r = rng(42);
-  const rocks: Deco["rocks"] = [];
-  const craters: Deco["craters"] = [{ x: 2600, y: 1950, r: 170 }];
-  for (let i = 0; i < 22; i++) craters.push({ x: r() * WORLD_W, y: SKY_H + 120 + r() * (WORLD_H - SKY_H - 200), r: 30 + r() * 80 });
-  for (let i = 0; i < 140; i++) rocks.push({ x: r() * WORLD_W, y: SKY_H + 60 + r() * (WORLD_H - SKY_H - 80), r: 6 + r() * 20 });
-  const clear = (x: number, y: number) => !BUILDINGS.some((b) => x > b.x - 60 && x < b.x + b.w + 60 && y > b.y - 60 && y < b.y + b.h + 80)
-    && Math.hypot(x - SPAWN.x, y - SPAWN.y) > 120;
-  cachedDeco = { rocks: rocks.filter((k) => clear(k.x, k.y)), craters: craters.filter((k, i) => i === 0 || clear(k.x, k.y)) };
-  return cachedDeco;
-}
-
-/** Solid rectangles the astronaut cannot walk through. */
-export function getObstacles(): Rect[] {
-  const obs: Rect[] = BUILDINGS.map((b) => ({ x: b.x + 10, y: b.y + b.h * 0.1, w: b.w - 20, h: b.h * 0.85 }));
+/** Solid rectangles the astronaut cannot walk through, including new construction. */
+export function getObstacles(facilities: Facility[] = []): Rect[] {
+  const placed = facilities.filter((f) => f.built);
+  const obs: Rect[] = [...BUILDINGS, ...placed].map((b) => ({ x: b.x + 10, y: b.y + b.h * 0.1, w: b.w - 20, h: b.h * 0.85 }));
   for (const k of getDeco().rocks) if (k.r > 16) obs.push({ x: k.x - k.r * 0.8, y: k.y - k.r * 0.5, w: k.r * 1.6, h: k.r });
   return obs;
 }
@@ -175,7 +143,7 @@ function drawSite(ctx: CanvasRenderingContext2D, kind: string, x: number, y: num
   ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
 }
 
-function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
+export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
   const { x, y, w, h } = b;
   ctx.fillStyle = "rgba(60,15,0,0.35)"; ctx.beginPath(); ctx.ellipse(x + w / 2 + 10, y + h - 5, w / 2, h / 6, 0, 0, 7); ctx.fill();
   ctx.strokeStyle = ink; ctx.lineWidth = 3;
