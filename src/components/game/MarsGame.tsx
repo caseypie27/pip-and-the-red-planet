@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { GameCanvas, type InputState } from "./GameCanvas";
+import { GameCanvas, type InputState, type PlacementCursor } from "./GameCanvas";
+import { BuildMenu, FacilityPanel, PlacementBar } from "./FacilityPanels";
 import { Joystick } from "./Joystick";
 import { PipPortrait } from "./Pip";
 import { CharacterSelect } from "./CharacterSelect";
 import { BUILDINGS, LANDMARKS } from "@/game/world";
+import { canPlace, facilityName, stationForFacility, type BuildableKind, type Facility } from "@/game/facilities";
 import { loadCharacter, loadSim, resetGame, saveCharacter, saveSim } from "@/game/storage";
 import { beep, play, soundForAction, unlockAudio, getSettings, setSettings, type AudioSettings } from "@/game/sound";
 import { newFx, type Nav } from "@/game/fx";
-import { report, ACHIEVEMENTS, BREAK_NAMES, checkAchievements, EVENTS, resolveEvent, SITES, visibleSites, checkObjective, infoFor, OBJECTIVES, act, actionsFor, DAY_SECONDS, EVENT_INFO, eventOf, MAX_SOL, newSim, nextSol, SOL_EVENTS, tick, type Sim, priorities, pickPrimary, LEVEL_NAMES, stormPhase, stormOf, weatherNow, BREAK_STATION, type Priority } from "@/game/sim";
+import { report, ACHIEVEMENTS, BREAK_NAMES, checkAchievements, EVENTS, resolveEvent, SITES, visibleSites, checkObjective, infoFor, OBJECTIVES, act, actionsFor, DAY_SECONDS, EVENT_INFO, eventOf, MAX_SOL, newSim, nextSol, SOL_EVENTS, tick, type Sim, priorities, pickPrimary, LEVEL_NAMES, stormPhase, stormOf, weatherNow, BREAK_STATION, type Priority, capacityOf, shieldOf, facilityViews } from "@/game/sim";
 import type { Character, Landmark } from "@/game/types";
 
 const WELCOME = "Welcome to Mars, astronaut! I'm PIP, your colony buddy. Let's explore our new home!";
@@ -16,15 +18,20 @@ const STATION_ICON: Record<string, string> = { solar: "☀️", dome: "🫧", gr
 
 function nearestStation(x: number, y: number, s: Sim): string | null {
   for (const site of visibleSites(s)) if (!s.discoveries.includes(site.id) && Math.hypot(x - site.x, y - site.y) < 120) return `site:${site.id}`;
-  for (const b of BUILDINGS) {
-    if (b.kind === "lander" || b.kind === "antenna") continue;
-    if (Math.hypot(x - (b.x + b.w / 2), y - (b.y + b.h / 2)) < Math.max(b.w, b.h) / 2 + 90) return b.kind;
+  for (const b of s.facilities) {
+    if (b.kind === "lander" || b.kind === "antenna" || b.remaining > 0) continue;
+    if (Math.hypot(x - (b.x + b.w / 2), y - (b.y + b.h / 2)) < Math.max(b.w, b.h) / 2 + 90) return stationForFacility(b.kind);
   }
   return null;
 }
 
-function stationPoint(st: string): { x: number; y: number; top: number } | null {
+function stationPoint(st: string, facilities?: Facility[], from?: { x: number; y: number }): { x: number; y: number; top: number } | null {
   if (st.startsWith("site:")) { const site = SITES.find((x) => x.id === st.slice(5)); return site ? { x: site.x, y: site.y, top: site.y - 110 } : null; }
+  if (facilities) {
+    const matches = facilities.filter((f) => f.remaining <= 0 && stationForFacility(f.kind) === st)
+      .sort((a, b) => from ? Math.hypot(a.x + a.w / 2 - from.x, a.y + a.h / 2 - from.y) - Math.hypot(b.x + b.w / 2 - from.x, b.y + b.h / 2 - from.y) : Number(b.primary) - Number(a.primary));
+    const f = matches[0]; if (f) return { x: f.x + f.w / 2, y: f.y + f.h / 2, top: f.y - 20 };
+  }
   const b = BUILDINGS.find((x) => x.kind === st); return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2, top: b.y - 20 } : null;
 }
 
@@ -35,17 +42,17 @@ function targetPoint(st: string, from: { x: number; y: number }) {
   return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2, top: b.y - 20 } : null;
 }
 
-function hitStation(x: number, y: number, st: string): boolean {
+function hitStation(x: number, y: number, st: string, s: Sim): boolean {
   if (st.startsWith("site:")) { const p = stationPoint(st); return !!p && Math.hypot(x - p.x, y - p.y) < 80; }
-  return BUILDINGS.some((b) => b.kind === st && x > b.x - 20 && x < b.x + b.w + 20 && y > b.y - 40 && y < b.y + b.h + 20);
+  return s.facilities.some((b) => b.remaining <= 0 && stationForFacility(b.kind) === st && x > b.x - 20 && x < b.x + b.w + 20 && y > b.y - 40 && y < b.y + b.h + 20);
 }
 
-function FacilityButton({ station, view, label, onOpen }: { station: string; view: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; label: React.ReactNode; onOpen: () => void }) {
+function FacilityButton({ station, view, facilities, pos, label, onOpen }: { station: string; view: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; facilities: React.MutableRefObject<Facility[]>; pos: React.MutableRefObject<{ x: number; y: number }>; label: React.ReactNode; onOpen: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     let raf = 0;
     const loop = () => {
-      const p = stationPoint(station), el = ref.current, v = view.current;
+      const p = stationPoint(station, facilities.current, pos.current), el = ref.current, v = view.current;
       if (p && el) {
         const vw = window.innerWidth, vh = window.innerHeight;
         const sx = vw / 2 + (p.x - v.cx) * v.zoom, sy = vh / 2 + (p.top - v.cy) * v.zoom;
@@ -58,7 +65,7 @@ function FacilityButton({ station, view, label, onOpen }: { station: string; vie
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [station, view]);
+  }, [station, view, facilities, pos]);
   return (
     <button ref={ref} onClick={onOpen} className="hud-panel start-btn pointer-events-auto absolute left-0 top-0 z-10 flex items-center gap-2 rounded-2xl px-5 py-3 text-base font-bold sm:text-lg" style={{ transform: "translate(-9999px,0)" }}>
       {label}
@@ -82,6 +89,11 @@ export function MarsGame() {
   const input = useRef<InputState>({ x: 0, y: 0 });
   const pos = useRef({ x: 0, y: 0 });
   const simRef = useRef(sim);
+  const facilitiesRef = useRef(sim.facilities);
+  const placementRef = useRef<PlacementCursor | null>(null);
+  const [placement, setPlacement] = useState<PlacementCursor | null>(null);
+  const [facilitiesOpen, setFacilitiesOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
   const toastRef = useRef(0);
   const markers = useRef<{ x: number; y: number }[]>([]);
   const speed = useRef(1);
@@ -102,6 +114,7 @@ export function MarsGame() {
   useEffect(() => { unlockAudio(); }, []);
   const [logOpen, setLogOpen] = useState<"" | "log" | "ach">("");
   simRef.current = sim;
+  facilitiesRef.current = sim.facilities;
 
   useEffect(() => { const c = loadCharacter(); setCharacter(c); setPlaying(!!c); const ls = loadSim() ?? newSim(); toastRef.current = ls.objective; setSim(ls); setReady(true); }, []);
 
@@ -114,6 +127,8 @@ export function MarsGame() {
       const prev = simRef.current, next = briefRef.current ? prev : reward(tick(prev, dt));
       if (next !== prev) {
         simRef.current = next; setSim(next);
+        const completed = next.facilities.find((f) => f.built && f.remaining === 0 && prev.facilities.some((p) => p.id === f.id && p.remaining > 0));
+        if (completed) { play("goal", `built-${completed.id}`); setToast({ id: ++toastN.current, text: `🏗️ ${facilityName(completed)} is ready!` }); setPip("Construction complete! The new facility is now connected to the base. Check the Facility Status panel."); }
         if (next.status !== prev.status) {
           play(next.status === "won" ? "win" : next.status === "lost" ? "lose" : "milestone");
           if (next.status === "summary") setPip(`Sol ${next.sol} is over! Check our supplies and get ready for tomorrow.`);
@@ -150,7 +165,7 @@ export function MarsGame() {
       const tp = top?.station ? targetPoint(top.station, pos.current) : null;
       const nearT = top?.station && nearestStation(pos.current.x, pos.current.y, cur) === top.station;
       nav.current = getSettings().nav && tp && top && !nearT && !cur.event ? { x: tp.x, y: tp.top + 20, label: `${top.icon} ${top.guide}`, level: top.level } : null;
-      if (next.event && !prev.event) { play(next.event.kind === "meteor" ? "meteor" : next.event.kind === "malfunction" ? "malfunction" : "alert", "event"); setPip(`${EVENTS[next.event.kind].icon} ${EVENTS[next.event.kind].title}! We need to decide what to do.`); }
+      if (next.event && !prev.event) { placementRef.current = null; setPlacement(null); setBuildOpen(false); setFacilitiesOpen(false); play(next.event.kind === "meteor" ? "meteor" : next.event.kind === "malfunction" ? "malfunction" : "alert", "event"); setPip(`${EVENTS[next.event.kind].icon} ${EVENTS[next.event.kind].title}! We need to decide what to do.`); }
       const st = nearestStation(pos.current.x, pos.current.y, cur);
       setStation((o) => { if (o !== st) setOpen(false); return st; });
     }, 200);
@@ -174,15 +189,16 @@ export function MarsGame() {
   const doAction = (aid: string) => {
     const r = act(simRef.current, aid), ok = r.sim !== simRef.current;
     play(ok ? soundForAction(aid) : "fail"); setFlash({ id: Date.now(), ok });
-    const n = reward(r.sim); simRef.current = n; setSim(n); saveSim(n); if (r.msg) setPip(ok ? r.msg : `❌ ${r.msg}`);
+    const n = reward(r.sim); simRef.current = n; facilitiesRef.current = n.facilities; setSim(n); saveSim(n); if (r.msg) setPip(ok ? r.msg : `❌ ${r.msg}`);
+    return ok;
   };
 
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { const k = e.key.toLowerCase();
       if (simRef.current.event && /^[12]$/.test(k)) { choose(Number(k) - 1); return; }
+      if (k === "escape") { setOpen(false); setFacilitiesOpen(false); setBuildOpen(false); placementRef.current = null; setPlacement(null); return; }
       if (!station) return;
-      if (k === "escape") setOpen(false);
-      else if (open && /^[1-9]$/.test(k)) { const a = actionsFor(station, simRef.current)[Number(k) - 1]; if (a) doAction(a.id); } };
+      if (open && /^[1-9]$/.test(k)) { const a = actionsFor(station, simRef.current)[Number(k) - 1]; if (a) doAction(a.id); } };
     window.addEventListener("keydown", kd); return () => window.removeEventListener("keydown", kd);
   }, [station, open]);
 
@@ -197,12 +213,28 @@ export function MarsGame() {
   const beginSol = () => { const s = nextSol(sim); setSim(s); saveSim(s); setBanner((b) => b + 1); const i = EVENT_INFO[eventOf(s)]; setPip(`Sol ${s.sol}: ${i.label}! ${i.tip}`); };
   const goal = OBJECTIVES[sim.objective];
   const restart = () => { const s = newSim(); toastRef.current = 0; setBriefing(true); setSim(s); saveSim(s); setPip(WELCOME); setBanner((b) => b + 1); };
+  const cancelPlacement = () => { placementRef.current = null; setPlacement(null); input.current = { x: 0, y: 0 }; };
+  const chooseBuild = (kind: BuildableKind) => {
+    let x = view.current.cx, y = view.current.cy, best = Number.POSITIVE_INFINITY;
+    for (let sy = 480; sy <= 2200; sy += 80) for (let sx = 200; sx <= 3000; sx += 80) {
+      const distance = Math.hypot(sx - view.current.cx, sy - view.current.cy);
+      if (distance < best && canPlace(facilitiesRef.current, kind, sx, sy).ok) { x = sx; y = sy; best = distance; }
+    }
+    const p = { kind, x, y, focusX: x, focusY: y };
+    placementRef.current = p; setPlacement(p); setBuildOpen(false); setFacilitiesOpen(false); setOpen(false);
+    setPip("I found the nearest suitable plain! Tap or click another site to move the preview, then Confirm build. Nothing is spent yet.");
+  };
+  const confirmBuild = () => {
+    const p = placementRef.current; if (!p) return;
+    if (doAction(`build:${p.kind}:${Math.round(p.x)}:${Math.round(p.y)}`)) { cancelPlacement(); setBuildOpen(false); }
+  };
+  const facilityList = facilityViews(sim);
   const res = [
-    { name: "Oxygen", icon: "🫧", value: (sim.oxygen / sim.capacity) * 100, raw: sim.oxygen, cls: "bg-res-oxygen", low: 25 },
-    { name: "Water", icon: "💧", value: (sim.water / sim.capacity) * 100, raw: sim.water, cls: "bg-res-water", low: 20 },
-    { name: "Food", icon: "🥕", value: (sim.food / sim.capacity) * 100, raw: sim.food, cls: "bg-res-food", low: 20 },
+    { name: "Oxygen", icon: "🫧", value: (sim.oxygen / capacityOf(sim)) * 100, raw: sim.oxygen, cls: "bg-res-oxygen", low: 25 },
+    { name: "Water", icon: "💧", value: (sim.water / capacityOf(sim)) * 100, raw: sim.water, cls: "bg-res-water", low: 20 },
+    { name: "Food", icon: "🥕", value: (sim.food / capacityOf(sim)) * 100, raw: sim.food, cls: "bg-res-food", low: 20 },
     { name: "Energy", icon: "⚡", value: sim.energy, cls: "bg-res-energy", low: 15 },
-    { name: "Shield", icon: "🛡️", value: sim.shield, cls: "bg-res-shield", low: -1 },
+    { name: "Shield", icon: "🛡️", value: shieldOf(sim), cls: "bg-res-shield", low: -1 },
     { name: "Base", icon: "🏠", value: sim.condition, cls: "bg-res-condition", low: 35 },
   ];
   const resBar = (
@@ -221,7 +253,7 @@ export function MarsGame() {
 
   return (
     <div className="game-root fixed inset-0 overflow-hidden">
-      <GameCanvas character={character} input={input} onDiscover={onDiscover} posRef={pos} markersRef={markers} speedRef={speed} viewRef={view} fxRef={fx} navRef={nav} onWorldClick={(x, y) => { if (station && !open && !sim.event && !briefing && hitStation(x, y, station)) { beep("open"); setOpen(true); } }} />
+      <GameCanvas character={character} input={input} onDiscover={onDiscover} posRef={pos} markersRef={markers} speedRef={speed} viewRef={view} fxRef={fx} navRef={nav} facilitiesRef={facilitiesRef} placementRef={placementRef} onPlacement={(x, y) => { const p = placementRef.current; if (p) setPlacement({ ...p, x, y }); }} onWorldClick={(x, y) => { if (station && !open && !sim.event && !briefing && hitStation(x, y, station, sim)) { beep("open"); setOpen(true); } }} />
       <div className="pointer-events-none absolute inset-0 p-2 text-hud-fg sm:p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="hud-panel pointer-events-auto rounded-2xl px-3 py-2">
@@ -236,6 +268,10 @@ export function MarsGame() {
               <button onClick={() => setLogOpen((v) => (v === "log" ? "" : "log"))} className="rounded-lg bg-hud-ink/50 px-2 py-0.5 text-xs font-bold hover:bg-hud-ink">📜 Log</button>
               <button onClick={() => setSettingsOpen((v) => !v)} aria-label="Sound and guidance settings" className="rounded-lg bg-hud-ink/50 px-2 py-0.5 text-xs font-bold hover:bg-hud-ink">{audio.muted ? "🔇" : "🔊"}</button>
               <button onClick={() => setLogOpen((v) => (v === "ach" ? "" : "ach"))} className="rounded-lg bg-hud-ink/50 px-2 py-0.5 text-xs font-bold hover:bg-hud-ink">⭐ {sim.achievements.length}/{ACHIEVEMENTS.length}</button>
+            </div>
+            <div className="mt-1 flex gap-1">
+              <button onClick={() => { setFacilitiesOpen((v) => !v); setBuildOpen(false); cancelPlacement(); setOpen(false); }} aria-label="Open facility status monitor" className="rounded-lg bg-hud-ink/50 px-2 py-1 text-xs font-bold hover:bg-hud-ink">🏢 Facilities</button>
+              <button onClick={() => { setBuildOpen((v) => !v); setFacilitiesOpen(false); cancelPlacement(); setOpen(false); }} className="start-btn rounded-lg px-2.5 py-1 text-xs font-bold">🔨 BUILD</button>
             </div>
             {settingsOpen && (
               <div className="mt-1 w-56 space-y-1 text-xs">
@@ -340,10 +376,14 @@ export function MarsGame() {
         )}
         {toast && <div key={toast.id} className="sol-banner absolute inset-x-0 top-[22%] text-center"><span className="hud-panel inline-block rounded-2xl px-4 py-2 text-base font-bold text-accent sm:text-lg">{toast.text}</span></div>}
 
-        {station && !open && !sim.event && !briefing && (
-          <FacilityButton station={station} view={view} onOpen={() => { beep("open"); setOpen(true); }} label={<><span className="text-2xl">{stIcon}</span><span>Open {stName}</span></>} />
+        {facilitiesOpen && !sim.event && !briefing && <FacilityPanel facilities={facilityList} onClose={() => setFacilitiesOpen(false)} onToggle={(id) => doAction(`facility-toggle:${id}`)} onRepair={(id) => doAction(`facility-repair:${id}`)} />}
+        {buildOpen && !sim.event && !briefing && <BuildMenu sim={sim} onSelect={chooseBuild} onClose={() => setBuildOpen(false)} />}
+        {placement && !sim.event && !briefing && <PlacementBar sim={sim} {...placement} onConfirm={confirmBuild} onCancel={cancelPlacement} />}
+
+        {station && !open && !sim.event && !briefing && !placement && !facilitiesOpen && !buildOpen && (
+          <FacilityButton station={station} view={view} facilities={facilitiesRef} pos={pos} onOpen={() => { beep("open"); setOpen(true); }} label={<><span className="text-2xl">{stIcon}</span><span>Open {stName}</span></>} />
         )}
-        {station && open && (
+        {station && open && !placement && !facilitiesOpen && !buildOpen && (
           <div key={flash?.id} className={`hud-panel pointer-events-auto absolute bottom-[34%] left-1/2 max-h-[55dvh] w-[min(94vw,470px)] -translate-x-1/2 overflow-y-auto rounded-2xl p-3 sm:bottom-28 sm:p-4 ${flash ? (flash.ok ? "panel-ok" : "panel-fail") : ""}`}>
             <div className="mb-2 flex items-center justify-between text-sm font-bold uppercase tracking-wider text-accent sm:text-base">
               <span>{stIcon} {stName}</span>
@@ -360,7 +400,7 @@ export function MarsGame() {
           </div>
         )}
 
-        <div className={`absolute inset-x-2 bottom-2 flex ${sim.status === "won" || sim.status === "lost" || briefing ? "hidden" : ""} items-end justify-between gap-2 sm:inset-x-3 sm:bottom-3`}>
+        <div className={`absolute inset-x-2 bottom-2 flex ${sim.status === "won" || sim.status === "lost" || briefing || facilitiesOpen || buildOpen || placement ? "hidden" : ""} items-end justify-between gap-2 sm:inset-x-3 sm:bottom-3`}>
           <div className="touch-only"><Joystick input={input} /></div>
           <div className="desktop-only hud-panel rounded-xl px-3 py-1.5 text-xs">Move: WASD / Arrows · Open: click building · Choose: 1–5</div>
           <div className="hud-panel pointer-events-auto flex max-w-[60vw] items-end gap-2 rounded-2xl p-2 sm:max-w-sm">

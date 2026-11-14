@@ -1,31 +1,14 @@
 import type { Landmark, Rect } from "./types";
 import { SITES } from "./sim";
+import { BASE_BUILDINGS, BUILD_DEFS, getDeco, placementRect, WORLD_H, WORLD_W, SKY_H, SPAWN, type BaseBuilding, type BuildableKind, type Facility } from "./facilities";
 
-export const WORLD_W = 3200;
-export const WORLD_H = 2400;
-export const SKY_H = 360; // northern horizon band (not walkable)
-export const SPAWN = { x: 1600, y: 1500 };
+export { WORLD_W, WORLD_H, SKY_H, SPAWN } from "./facilities";
+export type Building = BaseBuilding;
+export const BUILDINGS: Building[] = BASE_BUILDINGS;
 
 function rng(seed: number) {
   return () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
 }
-
-export interface Building { kind: "dome" | "hab" | "lab" | "greenhouse" | "lander" | "antenna" | "solar" | "rover" | "drill" | "shelter" | "storage"; x: number; y: number; w: number; h: number }
-
-export const BUILDINGS: Building[] = [
-  { kind: "lander", x: 1560, y: 1660, w: 170, h: 150 },
-  { kind: "dome", x: 1350, y: 1050, w: 260, h: 200 },
-  { kind: "hab", x: 1700, y: 1080, w: 240, h: 150 },
-  { kind: "greenhouse", x: 1050, y: 1300, w: 220, h: 150 },
-  { kind: "lab", x: 2050, y: 1350, w: 200, h: 150 },
-  { kind: "antenna", x: 2450, y: 800, w: 120, h: 120 },
-  { kind: "solar", x: 700, y: 800, w: 300, h: 180 },
-  { kind: "solar", x: 2200, y: 1800, w: 300, h: 180 },
-  { kind: "rover", x: 900, y: 1850, w: 140, h: 90 },
-  { kind: "shelter", x: 2350, y: 1100, w: 170, h: 110 },
-  { kind: "storage", x: 1230, y: 1650, w: 170, h: 110 },
-  { kind: "drill", x: 2750, y: 1250, w: 130, h: 150 },
-];
 
 export const LANDMARKS: Landmark[] = [
   { id: "lander", name: "Landing Zone", x: 1645, y: 1735, r: 200, pip: "This is where we landed! Our lander brought supplies all the way from Earth." },
@@ -40,25 +23,10 @@ export const LANDMARKS: Landmark[] = [
   { id: "crater", name: "Big Crater", x: 2600, y: 1950, r: 260, pip: "Whoa, a crater! It formed when a space rock crashed into Mars long ago." },
 ];
 
-export interface Deco { rocks: { x: number; y: number; r: number }[]; craters: { x: number; y: number; r: number }[] }
-
-let cachedDeco: Deco | null = null;
-export function getDeco(): Deco {
-  if (cachedDeco) return cachedDeco;
-  const r = rng(42);
-  const rocks: Deco["rocks"] = [];
-  const craters: Deco["craters"] = [{ x: 2600, y: 1950, r: 170 }];
-  for (let i = 0; i < 22; i++) craters.push({ x: r() * WORLD_W, y: SKY_H + 120 + r() * (WORLD_H - SKY_H - 200), r: 30 + r() * 80 });
-  for (let i = 0; i < 140; i++) rocks.push({ x: r() * WORLD_W, y: SKY_H + 60 + r() * (WORLD_H - SKY_H - 80), r: 6 + r() * 20 });
-  const clear = (x: number, y: number) => !BUILDINGS.some((b) => x > b.x - 60 && x < b.x + b.w + 60 && y > b.y - 60 && y < b.y + b.h + 80)
-    && Math.hypot(x - SPAWN.x, y - SPAWN.y) > 120;
-  cachedDeco = { rocks: rocks.filter((k) => clear(k.x, k.y)), craters: craters.filter((k, i) => i === 0 || clear(k.x, k.y)) };
-  return cachedDeco;
-}
-
-/** Solid rectangles the astronaut cannot walk through. */
-export function getObstacles(): Rect[] {
-  const obs: Rect[] = BUILDINGS.map((b) => ({ x: b.x + 10, y: b.y + b.h * 0.1, w: b.w - 20, h: b.h * 0.85 }));
+/** Solid rectangles the astronaut cannot walk through, including new construction. */
+export function getObstacles(facilities: Facility[] = []): Rect[] {
+  const placed = facilities.filter((f) => f.built);
+  const obs: Rect[] = [...BUILDINGS, ...placed].map((b) => ({ x: b.x + 10, y: b.y + b.h * 0.1, w: b.w - 20, h: b.h * 0.85 }));
   for (const k of getDeco().rocks) if (k.r > 16) obs.push({ x: k.x - k.r * 0.8, y: k.y - k.r * 0.5, w: k.r * 1.6, h: k.r });
   return obs;
 }
@@ -175,7 +143,7 @@ function drawSite(ctx: CanvasRenderingContext2D, kind: string, x: number, y: num
   ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
 }
 
-function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
+export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
   const { x, y, w, h } = b;
   ctx.fillStyle = "rgba(60,15,0,0.35)"; ctx.beginPath(); ctx.ellipse(x + w / 2 + 10, y + h - 5, w / 2, h / 6, 0, 0, 7); ctx.fill();
   ctx.strokeStyle = ink; ctx.lineWidth = 3;
@@ -276,4 +244,63 @@ export function drawDynamic(ctx: CanvasRenderingContext2D, t: number, visited: S
     ctx.beginPath(); ctx.moveTo(l.x, yy + 22); ctx.lineTo(l.x - 14, yy); ctx.arc(l.x, yy, 14, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
     ctx.fillStyle = ink; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center"; ctx.fillText("!", l.x, yy + 6);
   }
+}
+
+/** Player-built facilities and construction states, drawn above the static base. */
+export function drawFacilities(ctx: CanvasRenderingContext2D, facilities: Facility[], t: number) {
+  for (const f of facilities) {
+    if (!f.built) continue;
+    const kind = f.kind === "oxygen" ? "dome" : f.kind;
+    ctx.save();
+    if (f.remaining > 0) ctx.globalAlpha = 0.48;
+    drawBuilding(ctx, { kind, x: f.x, y: f.y, w: f.w, h: f.h });
+    ctx.restore();
+    if (f.remaining > 0) {
+      const pulse = 0.55 + Math.sin(t * 6) * 0.2;
+      ctx.save();
+      ctx.strokeStyle = `rgba(250,204,21,${pulse})`; ctx.lineWidth = 5; ctx.setLineDash([14, 10]);
+      ctx.strokeRect(f.x - 8, f.y - 8, f.w + 16, f.h + 16); ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(30,27,58,0.85)"; ctx.fillRect(f.x, f.y + f.h + 12, f.w, 18);
+      ctx.fillStyle = "#facc15"; ctx.fillRect(f.x + 2, f.y + f.h + 14, (f.w - 4) * Math.max(0.03, 1 - f.remaining / BUILD_DEFS[f.kind as BuildableKind].duration), 14);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 18px Nunito, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("BUILDING", f.x + f.w / 2, f.y - 18);
+      ctx.restore();
+    }
+  }
+  for (const f of facilities) {
+    if (f.remaining > 0) continue;
+    if (!f.enabled || f.damaged) {
+      ctx.save();
+      ctx.fillStyle = f.damaged ? "rgba(239,68,68,0.18)" : "rgba(30,27,58,0.25)";
+      ctx.fillRect(f.x, f.y, f.w, f.h);
+      ctx.fillStyle = f.damaged ? "#ef4444" : "#e5e7eb";
+      ctx.strokeStyle = "#1e1b3a"; ctx.lineWidth = 3; ctx.font = "bold 18px Nunito, sans-serif"; ctx.textAlign = "center";
+      const label = f.damaged ? "🔧 REPAIR" : "OFF";
+      ctx.strokeText(label, f.x + f.w / 2, f.y + 24); ctx.fillText(label, f.x + f.w / 2, f.y + 24);
+      ctx.restore();
+    }
+  }
+}
+
+export function drawPlacementGhost(ctx: CanvasRenderingContext2D, kind: BuildableKind, x: number, y: number, valid: boolean, t: number) {
+  const rect = placementRect(kind, x, y), d = BUILD_DEFS[kind];
+  ctx.save();
+  ctx.globalAlpha = 0.55 + Math.sin(t * 5) * 0.08;
+  drawBuilding(ctx, { kind: kind === "oxygen" ? "dome" : kind, ...rect });
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = valid ? "#4ade80" : "#ef4444"; ctx.lineWidth = 6; ctx.setLineDash([16, 10]);
+  ctx.strokeRect(rect.x - 8, rect.y - 8, rect.w + 16, rect.h + 16); ctx.setLineDash([]);
+  ctx.fillStyle = valid ? "rgba(74,222,128,0.2)" : "rgba(239,68,68,0.22)";
+  ctx.fillRect(rect.x - 44, rect.y - 44, rect.w + 88, rect.h + 88);
+  ctx.fillStyle = valid ? "#4ade80" : "#ef4444"; ctx.strokeStyle = "#1e1b3a"; ctx.lineWidth = 4;
+  ctx.font = "bold 22px Nunito, sans-serif"; ctx.textAlign = "center";
+  const label = `${d.icon} ${valid ? "VALID SITE" : "INVALID SITE"}`;
+  ctx.strokeText(label, x, rect.y - 20); ctx.fillText(label, x, rect.y - 20);
+  ctx.restore();
+}
+
+export function drawValidSiteMarker(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.save(); ctx.fillStyle = "rgba(74,222,128,0.32)"; ctx.strokeStyle = "rgba(30,27,58,0.45)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(x + 5, y); ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5); ctx.stroke(); ctx.restore();
 }

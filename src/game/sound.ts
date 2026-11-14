@@ -68,7 +68,8 @@ export function soundForAction(id: string): SoundKind {
   if (id.startsWith("scan-")) return "discovery";
   if (id.startsWith("tech-")) return "research";
   if (id.startsWith("review-") || id === "clean" || id === "scavenge") return "collect";
-  if (id.startsWith("toggle-") || id === "drill-mode") return "activate";
+  if (id.startsWith("toggle-") || id.startsWith("facility-toggle:") || id === "drill-mode") return "activate";
+  if (id.startsWith("build:")) return "upgrade";
   if (id === "shield" || id === "storage") return "upgrade";
   if (id.includes("fix") || id.includes("repair")) return "repair";
   return "ok";

@@ -1,4 +1,5 @@
 /** Mars survival simulation: pure state + tick + actions. All rates are "per Sol". */
+import { BUILD_DEFS, BUILDABLE_KINDS, canPlace, facilityIcon, facilityName, initialFacilities, placementRect, type BuildableKind, type Facility } from "./facilities";
 export type EventKind = "clear" | "dust" | "flare" | "storm-flare";
 export const SOL_EVENTS: EventKind[] = ["clear", "clear", "dust", "clear", "flare", "clear", "dust", "flare", "clear", "storm-flare"];
 export const EVENT_INFO: Record<EventKind, { label: string; icon: string; tip: string }> = {
@@ -24,6 +25,7 @@ export interface Sim {
   broken: Breakable | null; discoveries: string[]; reviewed: string[]; extraSites: string[];
   achievements: string[]; foodMade: number; log: LogEntry[];
   waterMade: number; solarMade: number; energyUsed: number; peakExposure: number; powerOut: number; damage: Record<string, number>;
+  facilities: Facility[]; nextFacility: number; facilityUnpowered: string[];
 }
 export interface LogEntry { sol: number; icon: string; text: string }
 export type Breakable = "oxygen" | "greenhouse" | "drill" | "panels";
@@ -40,12 +42,64 @@ export const TECHS: Record<TechId, { name: string; energy: number; materials: nu
 };
 const has = (s: Sim, t: TechId) => s.research.includes(t);
 
+export function facilityDamaged(s: Sim, f: Facility): boolean {
+  if (f.damaged) return true;
+  if (!f.primary || !s.broken) return false;
+  return (s.broken === "oxygen" && f.kind === "oxygen") || (s.broken === "greenhouse" && f.kind === "greenhouse")
+    || (s.broken === "drill" && f.kind === "drill") || (s.broken === "panels" && f.kind === "solar");
+}
+export function facilitySwitchedOn(s: Sim, f: Facility): boolean {
+  if (f.remaining > 0 || facilityDamaged(s, f)) return false;
+  if (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill")) return s.systems[f.kind];
+  return f.enabled;
+}
+export function facilityWorking(s: Sim, f: Facility): boolean {
+  return facilitySwitchedOn(s, f) && !s.facilityUnpowered.includes(f.id);
+}
+export function capacityOf(s: Sim): number {
+  return s.capacity + s.facilities.filter((f) => f.kind === "storage" && f.built && facilityWorking(s, f)).length * 30;
+}
+export function shieldOf(s: Sim): number {
+  const extra = s.facilities.filter((f) => f.kind === "shelter" && f.built && facilityWorking(s, f)).length * 8;
+  return clamp(s.shield + extra, 0, 95);
+}
+export function crewSupplyFactor(s: Sim): number {
+  const extra = s.facilities.filter((f) => f.kind === "hab" && f.built && facilityWorking(s, f)).length;
+  return 1 - Math.min(0.24, extra * 0.08);
+}
+export function researchCost(s: Sim, t: TechId) {
+  const extra = s.facilities.filter((f) => f.kind === "lab" && f.built && facilityWorking(s, f)).length;
+  const discount = 1 - Math.min(0.3, extra * 0.15), base = TECHS[t];
+  return { materials: Math.ceil(base.materials * discount), energy: Math.ceil(base.energy * discount) };
+}
+export function missingForCost(s: Sim, cost: { materials: number; energy: number }): string[] {
+  const missing: string[] = [];
+  if (s.materials < cost.materials) missing.push(`${cost.materials - s.materials} more materials`);
+  if (s.energy < cost.energy) missing.push(`${Math.ceil(cost.energy - s.energy)} more energy`);
+  return missing;
+}
+export type FacilityStatus = "operational" | "inactive" | "damaged" | "construction" | "unpowered";
+export interface FacilityView extends Facility {
+  name: string; icon: string; status: FacilityStatus; essential: boolean; controllable: boolean; description: string; warning: string | undefined;
+}
+export function facilityViews(s: Sim): FacilityView[] {
+  return s.facilities.map((f) => {
+    const def = BUILD_DEFS[f.kind as BuildableKind];
+    const status: FacilityStatus = facilityDamaged(s, f) ? "damaged" : f.remaining > 0 ? "construction" : !facilitySwitchedOn(s, f) ? "inactive" : s.facilityUnpowered.includes(f.id) ? "unpowered" : "operational";
+    const baseDescription = !f.built && f.kind === "hab" ? "Crew living quarters. Build extra modules to reduce crew supply use."
+      : !f.built && f.kind === "storage" ? "The base supply depot. Build extra units to add 30 capacity each."
+      : !f.built && f.kind === "shelter" ? "Thick walls protect the crew. Build extra shelters to add 8% shielding each." : null;
+    return { ...f, name: facilityName(f), icon: facilityIcon(f.kind), status, essential: def?.essential ?? false,
+      controllable: def?.controllable ?? false, description: baseDescription ?? def?.description ?? (f.kind === "rover" ? "Collects building materials once each Sol." : f.kind === "antenna" ? "Keeps the base connected to Earth." : "The crew's arrival vehicle and landing-zone landmark."), warning: def?.warning };
+  });
+}
+
 export function newSim(): Sim {
   return { sol: 1, time: 0, status: "day", oxygen: 80, water: 70, food: 60, energy: 70, shield: 30, condition: 100, exposure: 0,
     materials: 40, lifeSupport: 80, panels: 100, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
     usage: 0, foodRate: 0, waterRate: 0, research: [], drillHigh: false, capacity: 100, objective: 0,
     seed: Math.floor(Math.random() * 1000), event: null, eventSol: 1, eventsHandled: 0, broken: null, discoveries: [], reviewed: [], extraSites: [],
-    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
+    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, facilities: initialFacilities(), nextFacility: 1, facilityUnpowered: [], log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
 }
 
 export const RATES = {
@@ -65,48 +119,65 @@ export const envRadiation = (e: EventKind) => (e === "flare" || e === "storm-fla
 /** Advance the simulation by dt seconds (mutates a copy). */
 export function tick(prev: Sim, dt: number): Sim {
   if (prev.status !== "day" || prev.event) return prev;
-  const s: Sim = { ...prev, systems: { ...prev.systems } };
+  const s: Sim = { ...prev, systems: { ...prev.systems }, facilities: prev.facilities.map((f) => ({ ...f })), facilityUnpowered: [] };
   const k = dt / DAY_SECONDS;
   const ev = weatherNow(s);
   const dusty = ev === "dust" || ev === "storm-flare";
 
-  // Power: solar depends on daylight, weather and panel cleanliness
-  s.solar = RATES.solarPeak * daylight(s.time) * (dusty ? 0.35 : 1) * (s.panels / 100) * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
+  // Construction uses mission time and joins the resource network only when complete.
+  s.facilities = s.facilities.map((f) => {
+    if (f.remaining <= 0) return f;
+    const remaining = Math.max(0, f.remaining - dt);
+    if (remaining === 0) addLog(s, "🏗️", `${facilityName(f)} construction complete`);
+    return { ...f, remaining };
+  });
+
+  // Every active solar station contributes power; OFF or unfinished stations contribute nothing.
+  const solarStations = s.facilities.filter((f) => f.kind === "solar" && facilitySwitchedOn(s, f)).length;
+  s.solar = (RATES.solarPeak / 2) * solarStations * daylight(s.time) * (dusty ? 0.35 : 1) * (s.panels / 100) * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
   s.energy = clamp(s.energy + s.solar * k); s.solarMade += s.solar * k;
   s.panels = clamp(s.panels - (dusty ? 35 : 10) * k);
   s.lifeSupport = clamp(s.lifeSupport - (dusty ? 14 : 9) * k);
 
-  // Consumers, in priority order. Without enough energy a system stops working.
-  const unpowered: SystemId[] = [];
+  // Consumers, in priority order. Each facility stops independently without enough energy.
+  const unpowered = new Set<SystemId>();
   let usage = 0, food = 0, water = 0;
   const use = (e: number) => { usage += e; if (s.energy >= e * k) { s.energy -= e * k; return true; } s.energy = 0; return false; };
+  const wanted = (f: Facility) => f.remaining <= 0 && (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") ? s.systems[f.kind] : f.enabled);
+  const stop = (f: Facility) => { s.facilityUnpowered.push(f.id); if (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") unpowered.add(f.kind); };
   const baseOk = use(RATES.baseEnergy);
-  if (s.systems.oxygen && s.broken === "oxygen") unpowered.push("oxygen");
-  else if (s.systems.oxygen) {
+  for (const f of s.facilities.filter((f) => f.kind === "oxygen" && wanted(f))) {
+    if (facilityDamaged(s, f)) { stop(f); continue; }
     if (s.water > 0 && use(RATES.oxygenGen.energy)) { s.water -= RATES.oxygenGen.water * k; water -= RATES.oxygenGen.water; s.oxygen += RATES.oxygenGen.oxygen * (s.lifeSupport / 100) * k; }
-    else unpowered.push("oxygen");
+    else stop(f);
   }
-  if (s.systems.greenhouse && s.broken === "greenhouse") unpowered.push("greenhouse");
-  else if (s.systems.greenhouse) {
+  for (const f of s.facilities.filter((f) => f.kind === "greenhouse" && wanted(f))) {
+    if (facilityDamaged(s, f)) { stop(f); continue; }
     if (s.water > 0 && use(RATES.greenhouse.energy)) { const gw = RATES.greenhouse.water * (has(s, "irrigation") ? 0.6 : 1); s.water -= gw * k; water -= gw; food += RATES.greenhouse.food; s.foodMade += RATES.greenhouse.food * k; s.food += RATES.greenhouse.food * k; s.oxygen += RATES.greenhouse.oxygen * k; }
-    else unpowered.push("greenhouse");
+    else stop(f);
   }
-  if (s.systems.drill && s.broken === "drill") unpowered.push("drill");
-  else if (s.systems.drill) {
+  for (const f of s.facilities.filter((f) => f.kind === "drill" && wanted(f))) {
+    if (facilityDamaged(s, f)) { stop(f); continue; }
     const dw = RATES.drill.water * (s.drillHigh ? 1.7 : 1) * (has(s, "deepdrill") ? 1.4 : 1);
-    if (use(RATES.drill.energy * (s.drillHigh ? 1.8 : 1))) { s.water += dw * k; s.waterMade += dw * k; water += dw; } else unpowered.push("drill");
+    if (use(RATES.drill.energy * (s.drillHigh ? 1.8 : 1))) { s.water += dw * k; s.waterMade += dw * k; water += dw; } else stop(f);
   }
-  s.unpowered = unpowered;
+  // Extra support buildings have running costs, so their benefits are a real power trade-off.
+  for (const f of s.facilities.filter((f) => f.built && wanted(f) && (f.kind === "hab" || f.kind === "lab" || f.kind === "shelter"))) {
+    const rate = f.kind === "hab" || f.kind === "lab" ? 4 : 3;
+    if (!use(rate)) stop(f);
+  }
+  s.unpowered = [...unpowered];
 
   // Crew needs
-  const cap = s.capacity;
-  s.oxygen = clamp(s.oxygen - RATES.crew.oxygen * (has(s, "recycler") ? 0.8 : 1) * k, 0, cap);
-  s.water = clamp(s.water - RATES.crew.water * k, 0, cap);
-  s.food = clamp(s.food - RATES.crew.food * k, 0, cap);
-  s.usage = usage; s.energyUsed += usage * k; if (s.energy <= 0.5) s.powerOut += dt; s.foodRate = food - RATES.crew.food; s.waterRate = water - RATES.crew.water;
+  const cap = capacityOf(s), supplyFactor = crewSupplyFactor(s);
+  const crewFood = RATES.crew.food * supplyFactor, crewWater = RATES.crew.water * supplyFactor;
+  s.oxygen = clamp(s.oxygen - RATES.crew.oxygen * supplyFactor * (has(s, "recycler") ? 0.8 : 1) * k, 0, cap);
+  s.water = clamp(s.water - crewWater * k, 0, cap);
+  s.food = clamp(s.food - crewFood * k, 0, cap);
+  s.usage = usage; s.energyUsed += usage * k; if (s.energy <= 0.5) s.powerOut += dt; s.foodRate = food - crewFood; s.waterRate = water - crewWater;
 
   // Radiation exposure grows when shielding is weak
-  const rad = envRadiation(ev) * 12 * (1 - s.shield / 100) - (has(s, "radmeds") ? 8 : 4);
+  const rad = envRadiation(ev) * 12 * (1 - shieldOf(s) / 100) - (has(s, "radmeds") ? 8 : 4);
   s.exposure = clamp(s.exposure + rad * k); s.peakExposure = Math.max(s.peakExposure, s.exposure);
 
   // Base condition takes damage from shortages and hazards (gradual, never instant)
@@ -173,7 +244,7 @@ function baseActions(station: string, s: Sim): Action[] {
     ];
     case "greenhouse": return [{ id: "toggle-greenhouse", label: `Grow food: ${s.systems.greenhouse ? "ON" : "OFF"}` }];
     case "drill": return [{ id: "toggle-drill", label: `Ice drill: ${s.systems.drill ? "ON" : "OFF"}` }, { id: "drill-mode", label: `Speed: ${s.drillHigh ? "FAST (more water, much more energy)" : "NORMAL (saves energy)"}` }];
-    case "lab": return (Object.keys(TECHS) as TechId[]).filter((t) => !has(s, t)).map((t) => ({ id: `tech-${t}`, label: `${TECHS[t].name}: ${TECHS[t].desc}`, cost: `${TECHS[t].materials} 🔩 + ${TECHS[t].energy} ⚡` }));
+    case "lab": return (Object.keys(TECHS) as TechId[]).filter((t) => !has(s, t)).map((t) => { const c = researchCost(s, t); return { id: `tech-${t}`, label: `${TECHS[t].name}: ${TECHS[t].desc}`, cost: `${c.materials} 🔩 + ${c.energy} ⚡` }; });
     case "shelter": return [{ id: "shield", label: `Upgrade shielding (${Math.round(s.shield)}%)`, cost: "25 🔩 + 20 ⚡" }];
     case "hab": return [
       { id: "repair-base", label: `Repair base (${Math.round(s.condition)}%)`, cost: "15 🔩 + 10 ⚡" },
@@ -188,12 +259,48 @@ function baseActions(station: string, s: Sim): Action[] {
 
 /** Perform an action. Returns the new state and a message for PIP. */
 export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
-  const s: Sim = { ...prev, systems: { ...prev.systems } };
+  const s: Sim = { ...prev, systems: { ...prev.systems }, facilities: prev.facilities.map((f) => ({ ...f })) };
   const no = (m: string) => ({ sim: prev, msg: m });
   if (s.status === "won" || s.status === "lost") return no("The mission is over.");
+  if (id.startsWith("build:")) {
+    const [, rawKind, rawX, rawY] = id.split(":");
+    const kind = rawKind as BuildableKind, x = Number(rawX), y = Number(rawY);
+    if (!BUILDABLE_KINDS.includes(kind)) return no("Choose a valid facility.");
+    const def = BUILD_DEFS[kind], site = canPlace(s.facilities, kind, x, y);
+    if (!site.ok) return no(site.reason);
+    const missing = missingForCost(s, def.cost);
+    if (missing.length) return no(`Construction needs ${missing.join(" and ")}.`);
+    const rect = placementRect(kind, x, y);
+    const facility: Facility = { id: `built-${s.nextFacility}`, kind, ...rect, enabled: true, remaining: def.duration, damaged: false, primary: false, built: true };
+    s.nextFacility += 1; s.materials -= def.cost.materials; s.energy -= def.cost.energy; s.facilities.push(facility);
+    addLog(s, "🔨", `Started ${def.name} for ${def.cost.materials} materials + ${def.cost.energy} energy`);
+    return { sim: s, msg: `${def.name} confirmed! Construction will take ${def.duration} seconds of mission time.` };
+  }
+  if (id.startsWith("facility-toggle:")) {
+    const fid = id.slice("facility-toggle:".length), f = s.facilities.find((x) => x.id === fid), view = f ? facilityViews(s).find((x) => x.id === fid) : null;
+    if (!f || !view) return no("That facility is not available.");
+    if (!view.controllable) return no("This facility stays on automatically.");
+    if (f.remaining > 0) return no("Wait until construction is complete.");
+    if (facilityDamaged(s, f)) return no("Repair this facility before switching it on.");
+    f.enabled = !f.enabled;
+    if (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill")) s.systems[f.kind] = f.enabled;
+    addLog(s, f.enabled ? "✅" : "⏸️", `${facilityName(f)} switched ${f.enabled ? "ON" : "OFF"}`);
+    return { sim: s, msg: `${facilityName(f)} switched ${f.enabled ? "ON — connected to the resource network" : "OFF — its production and running use have stopped"}.` };
+  }
+  if (id.startsWith("facility-repair:")) {
+    const fid = id.slice("facility-repair:".length), f = s.facilities.find((x) => x.id === fid);
+    if (!f || !facilityDamaged(s, f)) return no("This facility does not need repair.");
+    if (s.materials < 10) return no("Repairs need 10 materials. Try the rover!");
+    s.materials -= 10; f.damaged = false;
+    if (f.primary && ((f.kind === "oxygen" && s.broken === "oxygen") || (f.kind === "greenhouse" && s.broken === "greenhouse") || (f.kind === "drill" && s.broken === "drill") || (f.kind === "solar" && s.broken === "panels"))) s.broken = null;
+    addLog(s, "🔧", `Repaired ${facilityName(f)}`);
+    return { sim: s, msg: `${facilityName(f)} repaired! It can operate again.` };
+  }
   switch (id) {
     case "toggle-oxygen": case "toggle-greenhouse": case "toggle-drill": {
       const sys = id.slice(7) as SystemId; s.systems[sys] = !s.systems[sys];
+      const primary = s.facilities.find((f) => f.primary && f.kind === sys);
+      if (primary) primary.enabled = s.systems[sys];
       const names = { oxygen: "Oxygen generator", greenhouse: "Greenhouse", drill: "Ice drill" };
       return { sim: s, msg: `${names[sys]} switched ${s.systems[sys] ? "ON — it uses energy" : "OFF — saving energy"}.` };
     }
@@ -202,7 +309,7 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
     case "storage":
       if (s.capacity >= 160) return no("Storage is as big as it can get!");
       if (s.materials < 20) return no("Not enough materials! Expanding storage needs 20 🔩 — try the rover.");
-      s.materials -= 20; s.capacity += 30; return { sim: s, msg: `Bigger tanks! We can now store up to ${s.capacity} oxygen, water and food, so we can save extra for storms.` };
+      s.materials -= 20; s.capacity += 30; return { sim: s, msg: `Bigger tanks! We can now store up to ${capacityOf(s)} oxygen, water and food, so we can save extra for storms.` };
     case "fix-broken":
       if (!s.broken) return no("Nothing is broken.");
       if (s.materials < 10) return no("Repairs need 10 materials. Try the rover!");
@@ -236,12 +343,13 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
     return { sim: s, msg: `Discovery! ${site.fact} Bring it to the Research Lab to study it.` };
   }
   if (id.startsWith("review-")) {
+    if (!s.facilities.some((f) => f.kind === "lab" && facilityWorking(s, f))) return no("Switch on a Research Laboratory first.");
     const site = SITES.find((x) => x.id === id.slice(7));
     if (!site || s.reviewed.includes(site.id)) return no("Already studied!");
     s.reviewed = [...s.reviewed, site.id]; const g = site.reward;
-    if (g.water) s.water = clamp(s.water + g.water, 0, s.capacity);
+    if (g.water) s.water = clamp(s.water + g.water, 0, capacityOf(s));
     if (g.materials) s.materials += g.materials;
-    if (g.food) s.food = clamp(s.food + g.food, 0, s.capacity);
+    if (g.food) s.food = clamp(s.food + g.food, 0, capacityOf(s));
     if (g.energy) s.energy = clamp(s.energy + g.energy);
     if (g.shield) s.shield = clamp(s.shield + g.shield, 0, 90);
     if (g.lifeSupport) s.lifeSupport = clamp(s.lifeSupport + g.lifeSupport);
@@ -251,8 +359,10 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
   if (id.startsWith("tech-")) {
     const t = id.slice(5) as TechId, T = TECHS[t];
     if (!T || has(s, t)) return no("Already researched!");
-    if (s.materials < T.materials || s.energy < T.energy) return no(`Research needs ${T.materials} materials and ${T.energy} energy. Spending energy here means less for food and water!`);
-    s.materials -= T.materials; s.energy -= T.energy; s.research = [...s.research, t]; addLog(s, "🧪", `Researched ${T.name}`);
+    if (!s.facilities.some((f) => f.kind === "lab" && facilityWorking(s, f))) return no("Switch on a Research Laboratory first.");
+    const cost = researchCost(s, t);
+    if (s.materials < cost.materials || s.energy < cost.energy) return no(`Research needs ${cost.materials} materials and ${cost.energy} energy. Spending energy here means less for food and water!`);
+    s.materials -= cost.materials; s.energy -= cost.energy; s.research = [...s.research, t]; addLog(s, "🧪", `Researched ${T.name}`);
     return { sim: s, msg: `Research complete: ${T.name}! ${T.desc}.` };
   }
   return no("");
@@ -276,11 +386,11 @@ export function infoFor(station: string, s: Sim): string[] {
   switch (station) {
     case "solar": return [`Making ${r(s.solar)} ⚡/Sol right now`, `Using ${r(s.usage)} ⚡/Sol`, `Panels ${r(s.panels)}% clean · ${EVENT_INFO[weatherNow(s)].label}`];
     case "greenhouse": return [`Food ${sign(s.foodRate)}/Sol (crew eats ${RATES.crew.food})`, `Uses ${RATES.greenhouse.energy} ⚡ and ${r(RATES.greenhouse.water * (has(s, "irrigation") ? 0.6 : 1))} 💧 per Sol`, s.unpowered.includes("greenhouse") ? "⚠️ Not growing: no power or water" : s.systems.greenhouse ? "Growing ✅" : "Switched off"];
-    case "drill": return [`Water ${sign(s.waterRate)}/Sol overall`, `Stored ${r(s.water)}/${s.capacity}`, s.unpowered.includes("drill") ? "⚠️ Stopped: no power" : s.systems.drill ? "Drilling ✅" : "Switched off"];
+    case "drill": return [`Water ${sign(s.waterRate)}/Sol overall`, `Stored ${r(s.water)}/${capacityOf(s)}`, s.unpowered.includes("drill") ? "⚠️ Stopped: no power" : s.systems.drill ? "Drilling ✅" : "Switched off"];
     case "hab": case "dome": return [`Oxygen ${r(s.oxygen)} · Life support ${r(s.lifeSupport)}%`, `Base condition ${r(s.condition)}% · Radiation dose ${r(s.exposure)}`];
     case "lab": return [`Researched ${s.research.length}/5 · Discoveries studied ${s.reviewed.length}/${s.discoveries.length}`, "Research uses energy and materials — less left for food and water."];
-    case "shelter": return [`Shielding ${r(s.shield)}%: blocks ${r(s.shield)}% of radiation`, `Crew dose ${r(s.exposure)}/100 — at 100 the base gets damaged`, `Radiation right now: ${envRadiation(weatherNow(s))}x normal`];
-    case "storage": return [`🫧 ${r(s.oxygen)} · 💧 ${r(s.water)} · 🥕 ${r(s.food)} (max ${s.capacity})`, `⚡ ${r(s.energy)} · 🔩 ${s.materials}`, `Water ${sign(s.waterRate)}/Sol · Food ${sign(s.foodRate)}/Sol`];
+    case "shelter": return [`Shielding ${r(shieldOf(s))}%: blocks ${r(shieldOf(s))}% of radiation`, `Crew dose ${r(s.exposure)}/100 — at 100 the base gets damaged`, `Radiation right now: ${envRadiation(weatherNow(s))}x normal`];
+    case "storage": return [`🫧 ${r(s.oxygen)} · 💧 ${r(s.water)} · 🥕 ${r(s.food)} (max ${capacityOf(s)})`, `⚡ ${r(s.energy)} · 🔩 ${s.materials}`, `Water ${sign(s.waterRate)}/Sol · Food ${sign(s.foodRate)}/Sol`];
     case "rover": return [`Materials: ${s.materials} 🔩`, s.scavenged ? "Rover is recharging until next Sol" : "Rover is ready"];
   }
   return [];
@@ -292,9 +402,9 @@ export const OBJECTIVES: Objective[] = [
   { title: "Secure water", hint: "Store 80 water using the Ice Drill", done: (s) => s.water >= 80 , station: "drill" },
   { title: "Produce enough food", hint: "Grow food in the Greenhouse until you have 75", done: (s) => s.food >= 75 , station: "greenhouse" },
   { title: "Complete your first research", hint: "Research a technology at the Research Lab", done: (s) => s.research.length >= 1 , station: "lab" },
-  { title: "Improve radiation protection", hint: "Get shielding to 60% at the Radiation Shelter", done: (s) => s.shield >= 60 , station: "shelter" },
+  { title: "Improve radiation protection", hint: "Get shielding to 60% at the Radiation Shelter", done: (s) => shieldOf(s) >= 60 , station: "shelter" },
   { title: "Reliable energy", hint: "End a Sol with 50+ energy", done: (s) => s.status === "summary" && s.energy >= 50 , station: "solar" },
-  { title: "Expand storage", hint: "Build bigger tanks at the Storage Depot", done: (s) => s.capacity > 100 , station: "storage" },
+  { title: "Expand storage", hint: "Build bigger tanks at the Storage Depot", done: (s) => capacityOf(s) > 100 , station: "storage" },
   { title: "Survive the solar flare", hint: "Reach Sol 6 with radiation dose under 50", done: (s) => s.sol >= 6 && s.exposure < 50 , station: "shelter" },
   { title: "Master scientist", hint: "Research 4 technologies", done: (s) => s.research.length >= 4 , station: "lab" },
   { title: "Survive 10 Sols", hint: "Keep the colony alive to the end", done: (s) => s.status === "won" },
@@ -338,7 +448,7 @@ export const EVENTS: Record<EventId, { title: string; icon: string; text: (s: Si
     ] },
   water: { title: "Ice signal detected", icon: "💧", text: () => "Our radar spotted buried ice far east of the base!",
     choices: () => [
-      { label: "Send the rover", pro: "+30 💧 right away", con: "−20 ⚡", apply: (s) => s.energy < 20 ? "The rover needs 20 energy!" : { ...s, energy: s.energy - 20, water: clamp(s.water + 30, 0, s.capacity) } },
+      { label: "Send the rover", pro: "+30 💧 right away", con: "−20 ⚡", apply: (s) => s.energy < 20 ? "The rover needs 20 energy!" : { ...s, energy: s.energy - 20, water: clamp(s.water + 30, 0, capacityOf(s)) } },
       { label: "Explore it yourself", pro: "Bigger reward (+40 💧) and a discovery", con: "Long walk and suit oxygen to scan it", apply: (s) => ({ ...s, extraSites: [...s.extraSites, "ice2"] }) },
     ] },
   breakthrough: { title: "Scientific breakthrough", icon: "💡", text: () => "Scientists on Earth sent us a clever new idea!",
@@ -352,8 +462,8 @@ export const EVENTS: Record<EventId, { title: string; icon: string; text: (s: Si
     } },
   radiation: { title: "Radiation spike", icon: "☢️", text: () => "A sudden burst of solar radiation is hitting the base!",
     choices: (s) => [
-      { label: "Everyone to the shelter", pro: "No extra radiation", con: "−10 ⚡ −5 🥕 (work stops)", apply: (x) => ({ ...x, energy: clamp(x.energy - 10), food: clamp(x.food - 5, 0, x.capacity) }) },
-      { label: "Keep working", pro: "Lose nothing", con: `+${Math.round(40 * (1 - s.shield / 100))} radiation dose (better shields = less)`, apply: (x) => ({ ...x, exposure: clamp(x.exposure + 40 * (1 - x.shield / 100)) }) },
+      { label: "Everyone to the shelter", pro: "No extra radiation", con: "−10 ⚡ −5 🥕 (work stops)", apply: (x) => ({ ...x, energy: clamp(x.energy - 10), food: clamp(x.food - 5, 0, capacityOf(x)) }) },
+      { label: "Keep working", pro: "Lose nothing", con: `+${Math.round(40 * (1 - shieldOf(s) / 100))} radiation dose (better shields = less)`, apply: (x) => ({ ...x, exposure: clamp(x.exposure + 40 * (1 - shieldOf(x) / 100)) }) },
     ] },
   meteor: { title: "Meteor detected", icon: "☄️", text: (s) => `A small meteor is falling towards the ${BREAK_NAMES[s.event?.target ?? "drill"]}! Mars has thin air, so space rocks don't burn up like on Earth.`,
     choices: () => [
@@ -382,7 +492,7 @@ export const ACHIEVEMENTS: { id: string; icon: string; title: string; done: (s: 
   { id: "harvest", icon: "🥕", title: "First harvest", done: (s) => s.foodMade >= 15 },
   { id: "discovery", icon: "🔍", title: "First discovery", done: (s) => s.discoveries.length >= 1 },
   { id: "lifesupport", icon: "🫧", title: "Stable life support", done: (s) => s.lifeSupport >= 95 },
-  { id: "shield", icon: "🛡️", title: "Radiation protection upgrade", done: (s) => s.shield > 30 },
+  { id: "shield", icon: "🛡️", title: "Radiation protection upgrade", done: (s) => shieldOf(s) > 30 },
   { id: "scientist", icon: "🔬", title: "Lab scientist (study 3 discoveries)", done: (s) => s.reviewed.length >= 3 },
   { id: "crisis", icon: "🧭", title: "Crisis manager (handle 3 events)", done: (s) => s.eventsHandled >= 3 },
   { id: "storm", icon: "🌪️", title: "Storm survivor", done: (s) => s.sol >= 4 && s.condition >= 50 },
@@ -427,7 +537,7 @@ export function report(s: Sim) {
   const supplies = (s.oxygen + s.water + s.food) / 3;
   const star = (v: number, a: number, b: number) => (v >= b ? 3 : v >= a ? 2 : 1);
   const ratings: Rating[] = [
-    { label: "Radiation protection", icon: "🛡️", value: `Shield ${r(s.shield)}% · highest dose ${r(s.peakExposure)}`, stars: s.peakExposure < 40 ? 3 : s.peakExposure < 75 ? 2 : 1, note: s.peakExposure < 40 ? "The crew stayed safe from radiation." : "Radiation got high — upgrade shields before flares." },
+    { label: "Radiation protection", icon: "🛡️", value: `Shield ${r(shieldOf(s))}% · highest dose ${r(s.peakExposure)}`, stars: s.peakExposure < 40 ? 3 : s.peakExposure < 75 ? 2 : 1, note: s.peakExposure < 40 ? "The crew stayed safe from radiation." : "Radiation got high — upgrade shields before flares." },
     { label: "Energy management", icon: "⚡", value: `${r(s.solarMade)} made · ${r(s.energyUsed)} used · ${r(s.powerOut)}s blackout`, stars: s.powerOut < 5 ? 3 : s.powerOut < 40 ? 2 : 1, note: s.powerOut < 5 ? "The lights never went out!" : "Power ran out sometimes — clean panels and switch off machines you don't need." },
     { label: "Food production", icon: "🥕", value: `${r(s.foodMade)} food grown · ${r(s.food)} left`, stars: star(s.foodMade, 40, 100), note: s.foodMade >= 40 ? "The greenhouse fed the crew well." : "Grow more food — the greenhouse is your farm on Mars." },
     { label: "Water production", icon: "💧", value: `${r(s.waterMade)} water drilled · ${r(s.water)} left`, stars: star(s.waterMade, 40, 120), note: s.waterMade >= 40 ? "Great ice drilling!" : "Use the Ice Drill more — water is used for everything." },
@@ -475,8 +585,8 @@ export function priorities(s: Sim): Priority[] {
   const add = (x: Priority) => p.push(x);
   const radStorm = w === "flare" || w === "storm-flare", dusty = w === "dust" || w === "storm-flare";
   if (s.oxygen < 25) add({ id: "oxygen", level: s.oxygen <= 10 ? 1 : 2, score: 100 - s.oxygen, icon: "🫧", title: s.oxygen <= 0 ? "Out of oxygen!" : "Low oxygen", guide: "Check your life-support system!", why: "The crew can't breathe Mars air. No oxygen damages the base fastest.", action: "Turn on the oxygen generator or fix life support in the Command Dome.", station: "dome" });
-  if (s.exposure >= 80 || (radStorm && s.shield < 60 && s.exposure > 45)) add({ id: "radiation", level: 1, score: 50 + s.exposure, icon: "☢️", title: "Dangerous radiation", guide: "Improve your radiation protection!", why: "At 100 dose the base takes radiation damage.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
-  else if (radStorm && s.shield < 60) add({ id: "radiation", level: 2, score: 60 - s.shield, icon: "☢️", title: "Radiation storm", guide: "Improve your radiation protection!", why: "Radiation is 5x stronger right now and our shields are thin.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
+  if (s.exposure >= 80 || (radStorm && shieldOf(s) < 60 && s.exposure > 45)) add({ id: "radiation", level: 1, score: 50 + s.exposure, icon: "☢️", title: "Dangerous radiation", guide: "Improve your radiation protection!", why: "At 100 dose the base takes radiation damage.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
+  else if (radStorm && shieldOf(s) < 60) add({ id: "radiation", level: 2, score: 60 - s.shield, icon: "☢️", title: "Radiation storm", guide: "Improve your radiation protection!", why: "Radiation is 5x stronger right now and our shields are thin.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
   else if (s.exposure > 60) add({ id: "radiation", level: 2, score: s.exposure - 40, icon: "☢️", title: "High radiation dose", guide: "Improve your radiation protection!", why: "Radiation keeps building up in the crew.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
   if (s.condition < 35) add({ id: "base", level: s.condition < 20 ? 1 : 2, score: 100 - s.condition, icon: "🏠", title: "Base badly damaged", guide: "Repair the base!", why: "If base condition reaches 0, the mission fails.", action: "Repair the base at the Habitat.", station: "hab" });
   if (s.broken) add({ id: "broken", level: s.broken === "oxygen" ? 1 : 2, score: 40, icon: "🔧", title: `${BREAK_NAMES[s.broken]} broken`, guide: "Equipment needs repair!", why: s.broken === "panels" ? "Broken wiring halves our solar power." : "This machine has stopped working.", action: `Repair it for 10 🔩 at the ${s.broken === "oxygen" ? "Command Dome" : s.broken === "panels" ? "Solar Farm" : s.broken === "drill" ? "Ice Drill" : "Greenhouse"}.`, station: BREAK_STATION[s.broken] });
