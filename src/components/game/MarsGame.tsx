@@ -5,7 +5,7 @@ import { Joystick } from "./Joystick";
 import { PipPortrait } from "./Pip";
 import { CharacterSelect } from "./CharacterSelect";
 import { BUILDINGS, LANDMARKS } from "@/game/world";
-import { stationForFacility, type BuildableKind, type Facility } from "@/game/facilities";
+import { facilityName, stationForFacility, type BuildableKind, type Facility } from "@/game/facilities";
 import { loadCharacter, loadSim, resetGame, saveCharacter, saveSim } from "@/game/storage";
 import { beep, play, soundForAction, unlockAudio, getSettings, setSettings, type AudioSettings } from "@/game/sound";
 import { newFx, type Nav } from "@/game/fx";
@@ -128,7 +128,7 @@ export function MarsGame() {
       if (next !== prev) {
         simRef.current = next; setSim(next);
         const completed = next.facilities.find((f) => f.built && f.remaining === 0 && prev.facilities.some((p) => p.id === f.id && p.remaining > 0));
-        if (completed) { play("goal", `built-${completed.id}`); setToast({ id: ++toastN.current, text: `🏗️ ${completed.kind === "drill" ? "Water Extraction Unit" : completed.kind === "oxygen" ? "Oxygen Generator" : completed.kind} is ready!` }); setPip("Construction complete! The new facility is now connected to the base. Check the Facility Status panel."); }
+        if (completed) { play("goal", `built-${completed.id}`); setToast({ id: ++toastN.current, text: `🏗️ ${facilityName(completed)} is ready!` }); setPip("Construction complete! The new facility is now connected to the base. Check the Facility Status panel."); }
         if (next.status !== prev.status) {
           play(next.status === "won" ? "win" : next.status === "lost" ? "lose" : "milestone");
           if (next.status === "summary") setPip(`Sol ${next.sol} is over! Check our supplies and get ready for tomorrow.`);
@@ -213,12 +213,23 @@ export function MarsGame() {
   const beginSol = () => { const s = nextSol(sim); setSim(s); saveSim(s); setBanner((b) => b + 1); const i = EVENT_INFO[eventOf(s)]; setPip(`Sol ${s.sol}: ${i.label}! ${i.tip}`); };
   const goal = OBJECTIVES[sim.objective];
   const restart = () => { const s = newSim(); toastRef.current = 0; setBriefing(true); setSim(s); saveSim(s); setPip(WELCOME); setBanner((b) => b + 1); };
+  const cancelPlacement = () => { placementRef.current = null; setPlacement(null); input.current = { x: 0, y: 0 }; };
+  const chooseBuild = (kind: BuildableKind) => {
+    const p = { kind, x: view.current.cx, y: view.current.cy };
+    placementRef.current = p; setPlacement(p); setBuildOpen(false); setFacilitiesOpen(false); setOpen(false);
+    setPip("Choose a green site on the open plains. Tap or click to move the preview, then Confirm build. Nothing is spent yet.");
+  };
+  const confirmBuild = () => {
+    const p = placementRef.current; if (!p) return;
+    if (doAction(`build:${p.kind}:${Math.round(p.x)}:${Math.round(p.y)}`)) { play("upgrade", "construction"); cancelPlacement(); setBuildOpen(false); }
+  };
+  const facilityList = facilityViews(sim);
   const res = [
-    { name: "Oxygen", icon: "🫧", value: (sim.oxygen / sim.capacity) * 100, raw: sim.oxygen, cls: "bg-res-oxygen", low: 25 },
-    { name: "Water", icon: "💧", value: (sim.water / sim.capacity) * 100, raw: sim.water, cls: "bg-res-water", low: 20 },
-    { name: "Food", icon: "🥕", value: (sim.food / sim.capacity) * 100, raw: sim.food, cls: "bg-res-food", low: 20 },
+    { name: "Oxygen", icon: "🫧", value: (sim.oxygen / capacityOf(sim)) * 100, raw: sim.oxygen, cls: "bg-res-oxygen", low: 25 },
+    { name: "Water", icon: "💧", value: (sim.water / capacityOf(sim)) * 100, raw: sim.water, cls: "bg-res-water", low: 20 },
+    { name: "Food", icon: "🥕", value: (sim.food / capacityOf(sim)) * 100, raw: sim.food, cls: "bg-res-food", low: 20 },
     { name: "Energy", icon: "⚡", value: sim.energy, cls: "bg-res-energy", low: 15 },
-    { name: "Shield", icon: "🛡️", value: sim.shield, cls: "bg-res-shield", low: -1 },
+    { name: "Shield", icon: "🛡️", value: shieldOf(sim), cls: "bg-res-shield", low: -1 },
     { name: "Base", icon: "🏠", value: sim.condition, cls: "bg-res-condition", low: 35 },
   ];
   const resBar = (
@@ -237,7 +248,7 @@ export function MarsGame() {
 
   return (
     <div className="game-root fixed inset-0 overflow-hidden">
-      <GameCanvas character={character} input={input} onDiscover={onDiscover} posRef={pos} markersRef={markers} speedRef={speed} viewRef={view} fxRef={fx} navRef={nav} onWorldClick={(x, y) => { if (station && !open && !sim.event && !briefing && hitStation(x, y, station)) { beep("open"); setOpen(true); } }} />
+      <GameCanvas character={character} input={input} onDiscover={onDiscover} posRef={pos} markersRef={markers} speedRef={speed} viewRef={view} fxRef={fx} navRef={nav} facilitiesRef={facilitiesRef} placementRef={placementRef} onPlacement={(x, y) => { const p = placementRef.current; if (p) setPlacement({ ...p, x, y }); }} onWorldClick={(x, y) => { if (station && !open && !sim.event && !briefing && hitStation(x, y, station, sim)) { beep("open"); setOpen(true); } }} />
       <div className="pointer-events-none absolute inset-0 p-2 text-hud-fg sm:p-3">
         <div className="flex items-start justify-between gap-2">
           <div className="hud-panel pointer-events-auto rounded-2xl px-3 py-2">
@@ -252,6 +263,10 @@ export function MarsGame() {
               <button onClick={() => setLogOpen((v) => (v === "log" ? "" : "log"))} className="rounded-lg bg-hud-ink/50 px-2 py-0.5 text-xs font-bold hover:bg-hud-ink">📜 Log</button>
               <button onClick={() => setSettingsOpen((v) => !v)} aria-label="Sound and guidance settings" className="rounded-lg bg-hud-ink/50 px-2 py-0.5 text-xs font-bold hover:bg-hud-ink">{audio.muted ? "🔇" : "🔊"}</button>
               <button onClick={() => setLogOpen((v) => (v === "ach" ? "" : "ach"))} className="rounded-lg bg-hud-ink/50 px-2 py-0.5 text-xs font-bold hover:bg-hud-ink">⭐ {sim.achievements.length}/{ACHIEVEMENTS.length}</button>
+            </div>
+            <div className="mt-1 flex gap-1">
+              <button onClick={() => { setFacilitiesOpen((v) => !v); setBuildOpen(false); cancelPlacement(); setOpen(false); }} aria-label="Open facility status monitor" className="rounded-lg bg-hud-ink/50 px-2 py-1 text-xs font-bold hover:bg-hud-ink">🏢 Facilities</button>
+              <button onClick={() => { setBuildOpen((v) => !v); setFacilitiesOpen(false); cancelPlacement(); setOpen(false); }} className="start-btn rounded-lg px-2.5 py-1 text-xs font-bold">🔨 BUILD</button>
             </div>
             {settingsOpen && (
               <div className="mt-1 w-56 space-y-1 text-xs">
@@ -356,10 +371,14 @@ export function MarsGame() {
         )}
         {toast && <div key={toast.id} className="sol-banner absolute inset-x-0 top-[22%] text-center"><span className="hud-panel inline-block rounded-2xl px-4 py-2 text-base font-bold text-accent sm:text-lg">{toast.text}</span></div>}
 
-        {station && !open && !sim.event && !briefing && (
-          <FacilityButton station={station} view={view} onOpen={() => { beep("open"); setOpen(true); }} label={<><span className="text-2xl">{stIcon}</span><span>Open {stName}</span></>} />
+        {facilitiesOpen && !sim.event && !briefing && <FacilityPanel facilities={facilityList} onClose={() => setFacilitiesOpen(false)} onToggle={(id) => doAction(`facility-toggle:${id}`)} onRepair={(id) => doAction(`facility-repair:${id}`)} />}
+        {buildOpen && !sim.event && !briefing && <BuildMenu sim={sim} onSelect={chooseBuild} onClose={() => setBuildOpen(false)} />}
+        {placement && !sim.event && !briefing && <PlacementBar sim={sim} {...placement} onConfirm={confirmBuild} onCancel={cancelPlacement} />}
+
+        {station && !open && !sim.event && !briefing && !placement && !facilitiesOpen && !buildOpen && (
+          <FacilityButton station={station} view={view} facilities={facilitiesRef} pos={pos} onOpen={() => { beep("open"); setOpen(true); }} label={<><span className="text-2xl">{stIcon}</span><span>Open {stName}</span></>} />
         )}
-        {station && open && (
+        {station && open && !placement && !facilitiesOpen && !buildOpen && (
           <div key={flash?.id} className={`hud-panel pointer-events-auto absolute bottom-[34%] left-1/2 max-h-[55dvh] w-[min(94vw,470px)] -translate-x-1/2 overflow-y-auto rounded-2xl p-3 sm:bottom-28 sm:p-4 ${flash ? (flash.ok ? "panel-ok" : "panel-fail") : ""}`}>
             <div className="mb-2 flex items-center justify-between text-sm font-bold uppercase tracking-wider text-accent sm:text-base">
               <span>{stIcon} {stName}</span>
