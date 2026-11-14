@@ -153,3 +153,55 @@
     color: var(--color-foreground);
   }
 }
+
+:root {
+  --primary: oklch(0.72 0.19 50);
+  --primary-foreground: oklch(0.2 0.06 285);
+  --accent: oklch(0.82 0.14 200);
+  --hud-bg: oklch(0.22 0.09 285 / 0.78);
+  --hud-fg: oklch(0.98 0.01 90);
+  --hud-muted: oklch(0.8 0.04 285);
+  --hud-ink: oklch(0.2 0.06 285);
+  --res-energy: oklch(0.86 0.17 95);
+  --res-oxygen: oklch(0.85 0.12 200);
+  --res-water: oklch(0.65 0.17 250);
+  --res-food: oklch(0.75 0.19 140);
+}
+@theme inline {
+  --color-hud-fg: var(--hud-fg);
+  --color-hud-muted: var(--hud-muted);
+  --color-hud-ink: var(--hud-ink);
+  --color-res-energy: var(--res-energy);
+  --color-res-oxygen: var(--res-oxygen);
+  --color-res-water: var(--res-water);
+  --color-res-food: var(--res-food);
+  --font-display: "Fredoka", system-ui, sans-serif;
+  --font-sans: "Nunito", system-ui, sans-serif;
+}
+html, body { margin: 0; width: 100vw; height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none; font-family: var(--font-sans); }
+.game-root { width: 100vw; height: 100vh; height: 100dvh; touch-action: none; user-select: none; }
+.hud-panel { background: var(--hud-bg); border: 2px solid oklch(1 0 0 / 0.18); backdrop-filter: blur(6px); box-shadow: 0 6px 20px oklch(0 0 0 / 0.3); }
+.space-bg { background: radial-gradient(ellipse at 50% 120%, oklch(0.6 0.19 40) 0%, oklch(0.4 0.15 10) 25%, oklch(0.25 0.12 295) 55%, oklch(0.15 0.07 280) 100%); }
+.select-card { background: var(--hud-bg); border: 3px solid oklch(1 0 0 / 0.15); color: var(--hud-fg); }
+.select-card.is-selected { border-color: var(--primary); box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary) 40%, transparent), 0 12px 30px oklch(0 0 0 / 0.4); }
+.start-btn { background: linear-gradient(180deg, oklch(0.8 0.17 60), var(--primary)); color: var(--primary-foreground); border: 3px solid var(--hud-ink); box-shadow: 0 6px 0 var(--hud-ink); }
+.start-btn:not(:disabled):active { transform: translateY(4px); box-shadow: 0 2px 0 var(--hud-ink); }
+.pip-text { animation: pip-in 0.4s ease-out; }
+@keyframes pip-in { from { opacity: 0; transform: translateY(6px); } }
+.pip-blink { animation: blink 1.2s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0.3; } }
+.touch-only { display: none; pointer-events: auto; }
+@media (pointer: coarse) { .touch-only { display: block; } .desktop-only { display: none; } }
+:root { --res-shield: oklch(0.75 0.15 320); --res-condition: oklch(0.78 0.04 260); --res-material: oklch(0.72 0.05 60); }
+@theme inline { --color-res-shield: var(--res-shield); --color-res-condition: var(--res-condition); --color-res-material: var(--res-material); }
+.weather-dust { background: radial-gradient(ellipse at center, oklch(0.7 0.14 55 / 0.15), oklch(0.6 0.15 45 / 0.5)); animation: dust-drift 4s ease-in-out infinite alternate; }
+.weather-flare { box-shadow: inset 0 0 120px oklch(0.75 0.2 330 / 0.55); animation: blink 2.5s ease-in-out infinite; }
+@keyframes dust-drift { to { opacity: 0.7; } }
+.sol-banner { animation: sol-in 3.2s ease-out forwards; }
+@keyframes sol-in { 0% { opacity: 0; transform: scale(0.8); } 15%, 75% { opacity: 1; transform: scale(1); } 100% { opacity: 0; } }
+.panel-ok { animation: panel-ok 0.5s ease-out; }
+.panel-fail { animation: panel-fail 0.4s ease-out; }
+@keyframes panel-ok { 30% { box-shadow: 0 0 0 4px var(--res-food); } }
+@keyframes panel-fail { 20%, 60% { transform: translateX(calc(-50% - 6px)); box-shadow: 0 0 0 4px var(--destructive); } 40%, 80% { transform: translateX(calc(-50% + 6px)); } }
+.event-pop { animation: event-pop 0.45s cubic-bezier(.2,1.6,.4,1); }
+@keyframes event-pop { from { opacity: 0; transform: translate(-50%, -50%) scale(0.6) rotate(-4deg); } }
