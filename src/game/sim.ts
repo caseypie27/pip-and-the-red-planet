@@ -49,9 +49,9 @@ export function facilityDamaged(s: Sim, f: Facility): boolean {
     || (s.broken === "drill" && f.kind === "drill") || (s.broken === "panels" && f.kind === "solar");
 }
 export function facilitySwitchedOn(s: Sim, f: Facility): boolean {
-  if (f.remaining > 0 || !f.enabled || facilityDamaged(s, f)) return false;
+  if (f.remaining > 0 || facilityDamaged(s, f)) return false;
   if (f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill")) return s.systems[f.kind];
-  return true;
+  return f.enabled;
 }
 export function facilityWorking(s: Sim, f: Facility): boolean {
   return facilitySwitchedOn(s, f) && !s.facilityUnpowered.includes(f.id);
