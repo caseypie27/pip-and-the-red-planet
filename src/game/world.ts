@@ -143,7 +143,7 @@ function drawSite(ctx: CanvasRenderingContext2D, kind: string, x: number, y: num
   ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
 }
 
-export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
+export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building, solar?: { cleanliness: number; progress: number | null; time: number }) {
   const { x, y, w, h } = b;
   ctx.fillStyle = "rgba(60,15,0,0.35)"; ctx.beginPath(); ctx.ellipse(x + w / 2 + 10, y + h - 5, w / 2, h / 6, 0, 0, 7); ctx.fill();
   ctx.strokeStyle = ink; ctx.lineWidth = 3;

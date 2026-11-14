@@ -96,20 +96,22 @@ export function facilityViews(s: Sim): FacilityView[] {
 
 export function newSim(): Sim {
   return { sol: 1, time: 0, status: "day", oxygen: 80, water: 70, food: 60, energy: 70, shield: 30, condition: 100, exposure: 0,
-    materials: 40, lifeSupport: 80, panels: 100, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
+    materials: 40, lifeSupport: 80, panels: 100, cleaning: 0, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
     usage: 0, foodRate: 0, waterRate: 0, research: [], drillHigh: false, capacity: 100, objective: 0,
     seed: Math.floor(Math.random() * 1000), event: null, eventSol: 1, eventsHandled: 0, broken: null, discoveries: [], reviewed: [], extraSites: [],
-    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, facilities: initialFacilities(), nextFacility: 1, facilityUnpowered: [], log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
+    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, facilities: initialFacilities(), nextFacility: 1, facilityUnpowered: [], failureCause: null, log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
 }
 
 export const RATES = {
-  crew: { oxygen: 24, water: 8, food: 10 },
+  crew: { oxygen: 12, water: 8, food: 10 },
   baseEnergy: 12,
   oxygenGen: { energy: 15, water: 5, oxygen: 30 },
   greenhouse: { energy: 10, water: 10, food: 15, oxygen: 4 },
   drill: { energy: 14, water: 26 },
   solarPeak: 72,
+  cleaningBoost: 140,
 };
+export const CLEANING_SECONDS = 6;
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 export const eventOf = (s: Sim) => SOL_EVENTS[s.sol - 1] ?? "clear";

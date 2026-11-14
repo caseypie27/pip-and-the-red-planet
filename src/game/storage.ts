@@ -17,6 +17,18 @@ export function resetGame() { localStorage.removeItem(KEY); localStorage.removeI
 const SIM = "mbb.sim";
 export function loadSim(): Sim | null {
   if (typeof window === "undefined") return null;
-  try { const v = JSON.parse(localStorage.getItem(SIM) || "null"); return v && typeof v.sol === "number" ? { ...newSim(), ...v } : null; } catch { return null; }
+  try {
+    const v = JSON.parse(localStorage.getItem(SIM) || "null");
+    if (!v || typeof v.sol !== "number") return null;
+    const s: Sim = { ...newSim(), ...v };
+    // Keep original base artwork and collision dimensions current while preserving player progress.
+    const bases = initialFacilities();
+    s.facilities = s.facilities.map((f) => {
+      if (f.built) return f;
+      const base = bases.find((b) => b.id === f.id);
+      return base ? { ...f, x: base.x, y: base.y, w: base.w, h: base.h } : f;
+    });
+    return s;
+  } catch { return null; }
 }
 export function saveSim(s: Sim) { localStorage.setItem(SIM, JSON.stringify(s)); localStorage.setItem(SOL, String(s.sol)); }

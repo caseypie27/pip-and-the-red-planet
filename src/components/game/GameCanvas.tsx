@@ -13,7 +13,7 @@ interface Props { character: Character; input: React.MutableRefObject<InputState
 const SPEED = 260;
 const R = 16;
 
-export function GameCanvas({ character, input, onDiscover, posRef, markersRef, speedRef, viewRef, onWorldClick, fxRef, navRef, facilitiesRef, placementRef, onPlacement }: Props) {
+export function GameCanvas({ character, input, onDiscover, posRef, markersRef, speedRef, viewRef, onWorldClick, fxRef, navRef, facilitiesRef, placementRef, onPlacement, solarRef }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const clickRef = useRef(onWorldClick);
   clickRef.current = onWorldClick;
