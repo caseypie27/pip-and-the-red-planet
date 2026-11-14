@@ -63,13 +63,12 @@ describe("survival sim", () => {
     expect(s.unpowered).toContain("greenhouse");
     expect(act(s, "fix-broken").sim.broken).toBeNull();
   });
-  it("running out of oxygen damages the base gradually and is named as the cause", () => {
-    let s = { ...newSim(), oxygen: 0, systems: { oxygen: false, greenhouse: false, drill: false } };
-    s = tick(s, 10);
-    expect(s.status).toBe("day"); expect(s.condition).toBeGreaterThan(90);
-    for (let i = 0; i < 600 && s.status === "day"; i++) { if (s.event) s = { ...s, event: null }; s = nextSol(tick(s, 1)); }
-    expect(s.status).toBe("lost");
+  it("oxygen reaching zero immediately ends the mission and names oxygen as the cause", () => {
+    const s = tick({ ...newSim(), oxygen: 0, systems: { oxygen: false, greenhouse: false, drill: false } }, 0.2);
+    expect(s.status).toBe("lost"); expect(s.oxygen).toBe(0); expect(s.failureCause).toBe("oxygen");
     expect(report(s).cause?.title).toBe("Oxygen ran out");
+    expect(tick(s, 10)).toBe(s);
+    expect(act(s, "clean").sim).toBe(s);
   });
   it("a well-managed win is a sustainable outpost", () => {
     const s = { ...newSim(), status: "won" as const, objective: 9, condition: 90 };

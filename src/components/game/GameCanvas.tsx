@@ -106,7 +106,7 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
       ctx.fillStyle = "#120a3a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * (vw / 2 - cx * zoom), dpr * (vh / 2 - cy * zoom));
       ctx.drawImage(world, 0, 0);
-      drawFacilities(ctx, facilities, t);
+      drawFacilities(ctx, facilities, t, solarRef?.current.cleanliness ?? 100, solarRef?.current.progress ?? null);
       const placing = placementRef?.current;
       if (placing) {
         const step = 200;

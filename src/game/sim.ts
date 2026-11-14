@@ -342,8 +342,13 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
       addLog(s, "🔧", `Repaired ${BREAK_NAMES[s.broken]}`);
       s.materials -= 10; s.broken = null; return { sim: s, msg: "Fixed! The system is working again." };
     case "clean":
+      if (s.status !== "day") return no("Start the next Sol before cleaning the panels.");
+      if (s.cleaning > 0) return no("Cleaning is already underway — keep the power recovering!");
+      if (s.panels >= 100) return no("The panels are already fully clean and at maximum efficiency.");
       if (s.water < 5) return no("We need 5 water to wash the panels!");
-      s.water -= 5; s.panels = 100; return { sim: s, msg: "Sparkly clean! Clean panels catch much more sunlight." };
+      s.water -= 5; s.cleaning = CLEANING_SECONDS; s.solar = solarOutput(s, true);
+      addLog(s, "🧽", "Started 6 seconds of solar cleaning: energy recovery boosted");
+      return { sim: s, msg: "Cleaning started! Energy is recovering faster than the base uses it. The panels will be fully clean in 6 seconds." };
     case "repair-ls":
       if (s.materials < 10) return no("We need 10 materials. Try the rover!");
       s.materials -= 10; s.lifeSupport = clamp(s.lifeSupport + 40); return { sim: s, msg: "Life support fixed! The oxygen generator works better now." };

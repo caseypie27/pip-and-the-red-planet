@@ -260,10 +260,6 @@ export function drawDynamic(ctx: CanvasRenderingContext2D, t: number, visited: S
   ctx.beginPath(); ctx.arc(2510, 820, 7, 0, 7); ctx.fill();
   // lab light
   ctx.fillStyle = `rgba(74,222,128,${0.5 + 0.5 * Math.sin(t * 3)})`; ctx.beginPath(); ctx.arc(2230, 1385, 5, 0, 7); ctx.fill();
-  // solar shimmer
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  const sx = ((t * 120) % 400) - 50;
-  for (const [bx, by] of [[700, 800], [2200, 1800]] as const) { ctx.save(); ctx.beginPath(); ctx.rect(bx, by, 300, 150); ctx.clip(); ctx.beginPath(); ctx.moveTo(bx + sx, by); ctx.lineTo(bx + sx + 30, by); ctx.lineTo(bx + sx - 30, by + 150); ctx.lineTo(bx + sx - 60, by + 150); ctx.fill(); ctx.restore(); }
   // drifting dust motes
   ctx.fillStyle = "rgba(255,210,170,0.35)";
   for (let i = 0; i < 90; i++) { const mx = ((i * 397 + t * (20 + (i % 5) * 8)) % WORLD_W), my = SKY_H + ((i * 733 + Math.sin(t + i) * 30) % (WORLD_H - SKY_H)); ctx.fillRect(mx, my, 3, 3); }

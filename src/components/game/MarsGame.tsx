@@ -116,6 +116,7 @@ export function MarsGame() {
   const [logOpen, setLogOpen] = useState<"" | "log" | "ach">("");
   simRef.current = sim;
   facilitiesRef.current = sim.facilities;
+  solarRef.current = { cleanliness: sim.panels, progress: sim.cleaning > 0 ? 100 * (1 - sim.cleaning / CLEANING_SECONDS) : null };
 
   useEffect(() => { const c = loadCharacter(); setCharacter(c); setPlaying(!!c); const ls = loadSim() ?? newSim(); toastRef.current = ls.objective; setSim(ls); setReady(true); }, []);
 
