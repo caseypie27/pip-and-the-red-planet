@@ -80,7 +80,7 @@ export function missingForCost(s: Sim, cost: { materials: number; energy: number
 }
 export type FacilityStatus = "operational" | "inactive" | "damaged" | "construction" | "unpowered";
 export interface FacilityView extends Facility {
-  name: string; icon: string; status: FacilityStatus; essential: boolean; controllable: boolean; description: string; warning?: string;
+  name: string; icon: string; status: FacilityStatus; essential: boolean; controllable: boolean; description: string; warning: string | undefined;
 }
 export function facilityViews(s: Sim): FacilityView[] {
   return s.facilities.map((f) => {
