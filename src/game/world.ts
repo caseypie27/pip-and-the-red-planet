@@ -95,7 +95,7 @@ export function renderStaticWorld(): HTMLCanvasElement {
   ctx.fillStyle = "#4b5563"; ctx.beginPath(); ctx.arc(1645, 1745, 130, 0, 7); ctx.fill(); ctx.stroke();
   ctx.strokeStyle = "#facc15"; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(1645, 1745, 110, 0, 7); ctx.stroke();
   ctx.lineWidth = 2.5; ctx.strokeStyle = ink;
-  for (const b of BUILDINGS) drawBuilding(ctx, b);
+  for (const b of BUILDINGS) if (b.kind !== "solar") drawBuilding(ctx, b);
   for (const site of SITES) drawSite(ctx, site.kind, site.x, site.y);
   return cv;
 }
@@ -143,7 +143,7 @@ function drawSite(ctx: CanvasRenderingContext2D, kind: string, x: number, y: num
   ctx.strokeStyle = ink; ctx.lineWidth = 2.5;
 }
 
-export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
+export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building, solar?: { cleanliness: number; progress: number | null; time: number }) {
   const { x, y, w, h } = b;
   ctx.fillStyle = "rgba(60,15,0,0.35)"; ctx.beginPath(); ctx.ellipse(x + w / 2 + 10, y + h - 5, w / 2, h / 6, 0, 0, 7); ctx.fill();
   ctx.strokeStyle = ink; ctx.lineWidth = 3;
@@ -180,17 +180,48 @@ export function drawBuilding(ctx: CanvasRenderingContext2D, b: Building) {
       ctx.beginPath(); ctx.ellipse(x + w / 2, y + 35, 55, 30, -0.4, 0, 7); ctx.fillStyle = "#f9fafb"; ctx.fill(); ctx.stroke();
       ctx.beginPath(); ctx.ellipse(x + w / 2, y + 35, 35, 18, -0.4, 0, 7); ctx.fillStyle = "#d1d5db"; ctx.fill(); ctx.stroke();
       break;
-    case "solar":
+    case "solar": {
+      const cw = w / 3, ch = h / 2, gap = 10;
       for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) {
-        const px = x + c * 100, py = y + r * 90;
-        rr(ctx, px + 42, py + 50, 8, 30, 2, "#6b7280");
-        rr(ctx, px, py, 92, 58, 4, "#1d4ed8");
+        const px = x + c * cw + gap / 2, py = y + r * ch;
+        const pw = cw - gap, ph = ch * 0.66;
+        rr(ctx, px + pw / 2 - 5, py + ph, 10, Math.max(16, ch - ph - 3), 2, "#6b7280");
+        rr(ctx, px, py, pw, ph, 5, "#1d4ed8");
         ctx.strokeStyle = "#60a5fa"; ctx.lineWidth = 1.5;
-        for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(px + i * 23, py + 2); ctx.lineTo(px + i * 23, py + 56); ctx.stroke(); }
-        ctx.beginPath(); ctx.moveTo(px + 2, py + 29); ctx.lineTo(px + 90, py + 29); ctx.stroke();
+        for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(px + (i * pw) / 4, py + 2); ctx.lineTo(px + (i * pw) / 4, py + ph - 2); ctx.stroke(); }
+        ctx.beginPath(); ctx.moveTo(px + 2, py + ph / 2); ctx.lineTo(px + pw - 2, py + ph / 2); ctx.stroke();
         ctx.strokeStyle = ink; ctx.lineWidth = 3;
+        if (solar) {
+          const dirt = Math.max(0, Math.min(1, (100 - solar.cleanliness) / 100));
+          if (dirt > 0.01) {
+            ctx.fillStyle = `rgba(126,72,35,${0.18 + dirt * 0.68})`;
+            ctx.beginPath(); ctx.roundRect(px + 2, py + 2, pw - 4, ph - 4, 4); ctx.fill();
+            ctx.fillStyle = `rgba(238,174,105,${dirt * 0.75})`;
+            for (let i = 0; i < 12; i++) { ctx.beginPath(); ctx.arc(px + 5 + ((i * 37 + c * 11) % Math.max(8, pw - 10)), py + 5 + ((i * 19 + r * 7) % Math.max(8, ph - 10)), 1.5 + (i % 3), 0, 7); ctx.fill(); }
+          }
+          if (solar.progress !== null) {
+            ctx.save(); ctx.beginPath(); ctx.roundRect(px + 2, py + 2, pw - 4, ph - 4, 4); ctx.clip();
+            const wash = px - 30 + ((solar.time * 85 + r * 40 + c * 25) % (pw + 60));
+            ctx.fillStyle = "rgba(186,245,255,0.5)"; ctx.fillRect(wash, py, 24, ph);
+            ctx.fillStyle = "rgba(255,255,255,0.85)";
+            for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(wash + 6 + (i % 2) * 12, py + 10 + i * 13, 3 + (i % 2), 0, 7); ctx.fill(); }
+            ctx.restore();
+          }
+        }
+      }
+      if (solar) {
+        const clean = Math.round(solar.cleanliness);
+        const label = solar.progress !== null ? `🧽 CLEANING ${Math.round(solar.progress)}%` : clean >= 95 ? "✨ CLEAN · FULL POWER" : clean >= 55 ? "PARTIALLY CLEAN" : "DIRTY · LOW POWER";
+        ctx.font = "bold 17px Nunito, sans-serif"; ctx.textAlign = "center"; ctx.lineWidth = 4; ctx.strokeStyle = ink;
+        ctx.fillStyle = solar.progress !== null ? "#a5f3fc" : clean >= 55 ? "#fde68a" : "#fdba74";
+        ctx.strokeText(label, x + w / 2, y - 30); ctx.fillText(label, x + w / 2, y - 30);
+        if (solar.progress !== null) {
+          ctx.fillStyle = "rgba(30,27,58,0.85)"; ctx.fillRect(x, y - 22, w, 14);
+          ctx.fillStyle = "#22d3ee"; ctx.fillRect(x + 2, y - 20, (w - 4) * Math.max(0.02, solar.progress / 100), 10);
+        }
       }
       break;
+    }
     case "lander":
       ctx.lineWidth = 5; for (const s of [-1, 1]) { ctx.beginPath(); ctx.moveTo(x + w / 2 + s * 30, y + 90); ctx.lineTo(x + w / 2 + s * 70, y + h - 5); ctx.stroke(); }
       ctx.lineWidth = 3;
@@ -229,10 +260,6 @@ export function drawDynamic(ctx: CanvasRenderingContext2D, t: number, visited: S
   ctx.beginPath(); ctx.arc(2510, 820, 7, 0, 7); ctx.fill();
   // lab light
   ctx.fillStyle = `rgba(74,222,128,${0.5 + 0.5 * Math.sin(t * 3)})`; ctx.beginPath(); ctx.arc(2230, 1385, 5, 0, 7); ctx.fill();
-  // solar shimmer
-  ctx.fillStyle = "rgba(255,255,255,0.35)";
-  const sx = ((t * 120) % 400) - 50;
-  for (const [bx, by] of [[700, 800], [2200, 1800]] as const) { ctx.save(); ctx.beginPath(); ctx.rect(bx, by, 300, 150); ctx.clip(); ctx.beginPath(); ctx.moveTo(bx + sx, by); ctx.lineTo(bx + sx + 30, by); ctx.lineTo(bx + sx - 30, by + 150); ctx.lineTo(bx + sx - 60, by + 150); ctx.fill(); ctx.restore(); }
   // drifting dust motes
   ctx.fillStyle = "rgba(255,210,170,0.35)";
   for (let i = 0; i < 90; i++) { const mx = ((i * 397 + t * (20 + (i % 5) * 8)) % WORLD_W), my = SKY_H + ((i * 733 + Math.sin(t + i) * 30) % (WORLD_H - SKY_H)); ctx.fillRect(mx, my, 3, 3); }
@@ -246,14 +273,14 @@ export function drawDynamic(ctx: CanvasRenderingContext2D, t: number, visited: S
   }
 }
 
-/** Player-built facilities and construction states, drawn above the static base. */
-export function drawFacilities(ctx: CanvasRenderingContext2D, facilities: Facility[], t: number) {
+/** Dynamic solar arrays plus player-built facilities and construction states. */
+export function drawFacilities(ctx: CanvasRenderingContext2D, facilities: Facility[], t: number, panels = 100, cleaningProgress: number | null = null) {
   for (const f of facilities) {
-    if (!f.built) continue;
+    if (!f.built && f.kind !== "solar") continue;
     const kind = f.kind === "oxygen" ? "dome" : f.kind;
     ctx.save();
     if (f.remaining > 0) ctx.globalAlpha = 0.48;
-    drawBuilding(ctx, { kind, x: f.x, y: f.y, w: f.w, h: f.h });
+    drawBuilding(ctx, { kind, x: f.x, y: f.y, w: f.w, h: f.h }, f.kind === "solar" ? { cleanliness: panels, progress: f.remaining > 0 ? null : cleaningProgress, time: t } : undefined);
     ctx.restore();
     if (f.remaining > 0) {
       const pulse = 0.55 + Math.sin(t * 6) * 0.2;

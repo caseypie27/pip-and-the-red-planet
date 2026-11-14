@@ -16,7 +16,7 @@ export interface Sim {
   sol: number; time: number; status: "day" | "summary" | "won" | "lost";
   oxygen: number; water: number; food: number; energy: number;
   shield: number; condition: number; exposure: number;
-  materials: number; lifeSupport: number; panels: number;
+  materials: number; lifeSupport: number; panels: number; cleaning: number;
   systems: Record<SystemId, boolean>; scavenged: boolean;
   unpowered: SystemId[]; solar: number;
   usage: number; foodRate: number; waterRate: number;
@@ -25,7 +25,7 @@ export interface Sim {
   broken: Breakable | null; discoveries: string[]; reviewed: string[]; extraSites: string[];
   achievements: string[]; foodMade: number; log: LogEntry[];
   waterMade: number; solarMade: number; energyUsed: number; peakExposure: number; powerOut: number; damage: Record<string, number>;
-  facilities: Facility[]; nextFacility: number; facilityUnpowered: string[];
+  facilities: Facility[]; nextFacility: number; facilityUnpowered: string[]; failureCause: string | null;
 }
 export interface LogEntry { sol: number; icon: string; text: string }
 export type Breakable = "oxygen" | "greenhouse" | "drill" | "panels";
@@ -96,29 +96,48 @@ export function facilityViews(s: Sim): FacilityView[] {
 
 export function newSim(): Sim {
   return { sol: 1, time: 0, status: "day", oxygen: 80, water: 70, food: 60, energy: 70, shield: 30, condition: 100, exposure: 0,
-    materials: 40, lifeSupport: 80, panels: 100, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
+    materials: 40, lifeSupport: 80, panels: 100, cleaning: 0, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
     usage: 0, foodRate: 0, waterRate: 0, research: [], drillHigh: false, capacity: 100, objective: 0,
     seed: Math.floor(Math.random() * 1000), event: null, eventSol: 1, eventsHandled: 0, broken: null, discoveries: [], reviewed: [], extraSites: [],
-    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, facilities: initialFacilities(), nextFacility: 1, facilityUnpowered: [], log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
+    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, facilities: initialFacilities(), nextFacility: 1, facilityUnpowered: [], failureCause: null, log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
 }
 
 export const RATES = {
-  crew: { oxygen: 24, water: 8, food: 10 },
+  crew: { oxygen: 12, water: 8, food: 10 },
   baseEnergy: 12,
   oxygenGen: { energy: 15, water: 5, oxygen: 30 },
   greenhouse: { energy: 10, water: 10, food: 15, oxygen: 4 },
   drill: { energy: 14, water: 26 },
   solarPeak: 72,
+  cleaningBoost: 140,
 };
+export const CLEANING_SECONDS = 6;
 
 const clamp = (v: number, lo = 0, hi = 100) => Math.max(lo, Math.min(hi, v));
 export const eventOf = (s: Sim) => SOL_EVENTS[s.sol - 1] ?? "clear";
 export const daylight = (time: number) => Math.max(0.1, Math.sin((Math.PI * time) / DAY_SECONDS));
 export const envRadiation = (e: EventKind) => (e === "flare" || e === "storm-flare" ? 5 : e === "dust" ? 0.8 : 1);
 
+/** One shared solar calculation: cleanliness changes real output, and cleaning adds a short recovery boost. */
+export function solarOutput(s: Sim, cleaningActive = s.cleaning > 0): number {
+  const dustyWeather = weatherNow(s) === "dust" || weatherNow(s) === "storm-flare";
+  const stations = s.facilities.filter((f) => f.kind === "solar" && facilitySwitchedOn(s, f)).length;
+  const normal = (RATES.solarPeak / 2) * stations * daylight(s.time) * (dustyWeather ? 0.35 : 1) * (s.panels / 100)
+    * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
+  return normal + (cleaningActive ? RATES.cleaningBoost * (dustyWeather ? 0.5 : 1) : 0);
+}
+
+function oxygenGameOver(prev: Sim): Sim {
+  const s: Sim = { ...prev, oxygen: 0, cleaning: 0, status: "lost", failureCause: "oxygen" };
+  addLog(s, "🫧", "Oxygen reached 0%. The astronaut could not survive.");
+  return s;
+}
+
 /** Advance the simulation by dt seconds (mutates a copy). */
 export function tick(prev: Sim, dt: number): Sim {
-  if (prev.status !== "day" || prev.event) return prev;
+  if (prev.status !== "day") return prev;
+  if (prev.oxygen <= 0) return oxygenGameOver(prev);
+  if (prev.event) return prev;
   const s: Sim = { ...prev, systems: { ...prev.systems }, facilities: prev.facilities.map((f) => ({ ...f })), facilityUnpowered: [] };
   const k = dt / DAY_SECONDS;
   const ev = weatherNow(s);
@@ -132,11 +151,16 @@ export function tick(prev: Sim, dt: number): Sim {
     return { ...f, remaining };
   });
 
-  // Every active solar station contributes power; OFF or unfinished stations contribute nothing.
-  const solarStations = s.facilities.filter((f) => f.kind === "solar" && facilitySwitchedOn(s, f)).length;
-  s.solar = (RATES.solarPeak / 2) * solarStations * daylight(s.time) * (dusty ? 0.35 : 1) * (s.panels / 100) * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
+  // Cleaning is sustained work, not an instant visual reset. Its boost exceeds normal base consumption.
+  const wasCleaning = s.cleaning > 0;
+  if (wasCleaning) {
+    s.cleaning = Math.max(0, s.cleaning - dt);
+    s.panels = clamp(s.panels + (100 / CLEANING_SECONDS) * dt);
+    if (s.cleaning === 0) { s.panels = 100; addLog(s, "🧽", "Solar panels fully cleaned — maximum efficiency restored"); }
+  }
+  s.solar = solarOutput(s, wasCleaning);
   s.energy = clamp(s.energy + s.solar * k); s.solarMade += s.solar * k;
-  s.panels = clamp(s.panels - (dusty ? 35 : 10) * k);
+  if (!wasCleaning) s.panels = clamp(s.panels - (dusty ? 35 : 10) * k);
   s.lifeSupport = clamp(s.lifeSupport - (dusty ? 14 : 9) * k);
 
   // Consumers, in priority order. Each facility stops independently without enough energy.
@@ -175,6 +199,8 @@ export function tick(prev: Sim, dt: number): Sim {
   s.water = clamp(s.water - crewWater * k, 0, cap);
   s.food = clamp(s.food - crewFood * k, 0, cap);
   s.usage = usage; s.energyUsed += usage * k; if (s.energy <= 0.5) s.powerOut += dt; s.foodRate = food - crewFood; s.waterRate = water - crewWater;
+  // Oxygen is immediately fatal: no movement, further ticks, or gradual-damage grace period.
+  if (s.oxygen <= 0) { s.time = Math.min(DAY_SECONDS, s.time + dt); return oxygenGameOver(s); }
 
   // Radiation exposure grows when shielding is weak
   const rad = envRadiation(ev) * 12 * (1 - shieldOf(s) / 100) - (has(s, "radmeds") ? 8 : 4);
@@ -237,7 +263,7 @@ export function actionsFor(station: string, s: Sim): Action[] {
 }
 function baseActions(station: string, s: Sim): Action[] {
   switch (station) {
-    case "solar": return [{ id: "clean", label: `Clean panels (${Math.round(s.panels)}% clean)`, cost: "5 💧" }];
+    case "solar": return [{ id: "clean", label: s.cleaning > 0 ? `🧽 Cleaning panels… ${Math.round(100 * (1 - s.cleaning / CLEANING_SECONDS))}%` : `Clean panels (${Math.round(s.panels)}% clean)`, cost: s.cleaning > 0 ? "BOOST ACTIVE" : "5 💧" }];
     case "dome": return [
       { id: "toggle-oxygen", label: `Oxygen generator: ${s.systems.oxygen ? "ON" : "OFF"}` },
       { id: "repair-ls", label: `Fix life support (${Math.round(s.lifeSupport)}%)`, cost: "10 🔩" },
@@ -316,8 +342,13 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
       addLog(s, "🔧", `Repaired ${BREAK_NAMES[s.broken]}`);
       s.materials -= 10; s.broken = null; return { sim: s, msg: "Fixed! The system is working again." };
     case "clean":
+      if (s.status !== "day") return no("Start the next Sol before cleaning the panels.");
+      if (s.cleaning > 0) return no("Cleaning is already underway — keep the power recovering!");
+      if (s.panels >= 100) return no("The panels are already fully clean and at maximum efficiency.");
       if (s.water < 5) return no("We need 5 water to wash the panels!");
-      s.water -= 5; s.panels = 100; return { sim: s, msg: "Sparkly clean! Clean panels catch much more sunlight." };
+      s.water -= 5; s.cleaning = CLEANING_SECONDS; s.solar = solarOutput(s, true);
+      addLog(s, "🧽", "Started 6 seconds of solar cleaning: energy recovery boosted");
+      return { sim: s, msg: "Cleaning started! Energy is recovering faster than the base uses it. The panels will be fully clean in 6 seconds." };
     case "repair-ls":
       if (s.materials < 10) return no("We need 10 materials. Try the rover!");
       s.materials -= 10; s.lifeSupport = clamp(s.lifeSupport + 40); return { sim: s, msg: "Life support fixed! The oxygen generator works better now." };
@@ -370,7 +401,7 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
 
 export function warnings(s: Sim): string[] {
   const w: string[] = [];
-  if (s.oxygen < 25) w.push(s.oxygen <= 0 ? "OUT OF OXYGEN!" : "Low oxygen");
+  if (s.oxygen <= 20) w.push(s.oxygen <= 0 ? "OUT OF OXYGEN!" : s.oxygen <= 10 ? "Critical oxygen" : "Low oxygen");
   if (s.water < 20) w.push(s.water <= 0 ? "No water!" : "Low water");
   if (s.food < 20) w.push(s.food <= 0 ? "No food!" : "Low food");
   if (s.energy < 15) w.push("Power shortage");
@@ -384,7 +415,7 @@ export function warnings(s: Sim): string[] {
 export function infoFor(station: string, s: Sim): string[] {
   const r = Math.round, sign = (n: number) => (n >= 0 ? "+" : "") + r(n);
   switch (station) {
-    case "solar": return [`Making ${r(s.solar)} ⚡/Sol right now`, `Using ${r(s.usage)} ⚡/Sol`, `Panels ${r(s.panels)}% clean · ${EVENT_INFO[weatherNow(s)].label}`];
+    case "solar": return [`Making ${r(s.solar)} ⚡/Sol right now`, `Using ${r(s.usage)} ⚡/Sol`, s.cleaning > 0 ? `🧽 Cleaning ${r(100 * (1 - s.cleaning / CLEANING_SECONDS))}% · recovery boost +${RATES.cleaningBoost} ⚡/Sol` : `Panels ${r(s.panels)}% clean · ${EVENT_INFO[weatherNow(s)].label}`];
     case "greenhouse": return [`Food ${sign(s.foodRate)}/Sol (crew eats ${RATES.crew.food})`, `Uses ${RATES.greenhouse.energy} ⚡ and ${r(RATES.greenhouse.water * (has(s, "irrigation") ? 0.6 : 1))} 💧 per Sol`, s.unpowered.includes("greenhouse") ? "⚠️ Not growing: no power or water" : s.systems.greenhouse ? "Growing ✅" : "Switched off"];
     case "drill": return [`Water ${sign(s.waterRate)}/Sol overall`, `Stored ${r(s.water)}/${capacityOf(s)}`, s.unpowered.includes("drill") ? "⚠️ Stopped: no power" : s.systems.drill ? "Drilling ✅" : "Switched off"];
     case "hab": case "dome": return [`Oxygen ${r(s.oxygen)} · Life support ${r(s.lifeSupport)}%`, `Base condition ${r(s.condition)}% · Radiation dose ${r(s.exposure)}`];
@@ -548,7 +579,7 @@ export function report(s: Sim) {
   const grade = s.status !== "won" ? (total >= 12 ? "Brave try" : "Training mission") : supplies >= 40 && s.condition >= 60 && s.objective >= 7 ? "Sustainable outpost ⭐⭐⭐" : s.condition >= 40 && s.objective >= 4 ? "Working outpost ⭐⭐" : "Survived, just barely ⭐";
   const strengths = ratings.filter((x) => x.stars === 3).map((x) => `${x.icon} ${x.note}`);
   const improve = ratings.filter((x) => x.stars === 1).map((x) => `${x.icon} ${x.note}`);
-  const worst = Object.entries(s.damage).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const worst = s.failureCause ?? Object.entries(s.damage).sort((a, b) => b[1] - a[1])[0]?.[0];
   const cause = s.status === "lost" && worst ? CAUSES[worst] : undefined;
   const decisions = s.log.filter((l) => l.icon === "🗳️").map((l) => l.text.replace("Decision: ", ""));
   return { solsSurvived, ratings, grade, strengths, improve, cause, decisions, supplies };
@@ -584,7 +615,7 @@ export function priorities(s: Sim): Priority[] {
   const p: Priority[] = [], w = weatherNow(s);
   const add = (x: Priority) => p.push(x);
   const radStorm = w === "flare" || w === "storm-flare", dusty = w === "dust" || w === "storm-flare";
-  if (s.oxygen < 25) add({ id: "oxygen", level: s.oxygen <= 10 ? 1 : 2, score: 100 - s.oxygen, icon: "🫧", title: s.oxygen <= 0 ? "Out of oxygen!" : "Low oxygen", guide: "Check your life-support system!", why: "The crew can't breathe Mars air. No oxygen damages the base fastest.", action: "Turn on the oxygen generator or fix life support in the Command Dome.", station: "dome" });
+  if (s.oxygen <= 20) add({ id: "oxygen", level: s.oxygen <= 10 ? 1 : 2, score: 100 - s.oxygen, icon: "🫧", title: s.oxygen <= 0 ? "Out of oxygen!" : s.oxygen <= 10 ? "Critical oxygen" : "Low oxygen", guide: s.oxygen <= 10 ? "Oxygen critical — restore life support now!" : "Check your life-support system!", why: "The crew can't breathe Mars air. At 0%, the mission ends immediately.", action: "Turn on the oxygen generator or fix life support in the Command Dome.", station: "dome" });
   if (s.exposure >= 80 || (radStorm && shieldOf(s) < 60 && s.exposure > 45)) add({ id: "radiation", level: 1, score: 50 + s.exposure, icon: "☢️", title: "Dangerous radiation", guide: "Improve your radiation protection!", why: "At 100 dose the base takes radiation damage.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
   else if (radStorm && shieldOf(s) < 60) add({ id: "radiation", level: 2, score: 60 - s.shield, icon: "☢️", title: "Radiation storm", guide: "Improve your radiation protection!", why: "Radiation is 5x stronger right now and our shields are thin.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });
   else if (s.exposure > 60) add({ id: "radiation", level: 2, score: s.exposure - 40, icon: "☢️", title: "High radiation dose", guide: "Improve your radiation protection!", why: "Radiation keeps building up in the crew.", action: "Upgrade shielding at the Radiation Shelter.", station: "shelter" });

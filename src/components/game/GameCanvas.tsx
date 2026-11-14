@@ -8,12 +8,12 @@ import type { Character, Dir, Landmark } from "@/game/types";
 export interface InputState { x: number; y: number }
 
 export interface PlacementCursor { kind: BuildableKind; x: number; y: number; focusX: number; focusY: number }
-interface Props { character: Character; input: React.MutableRefObject<InputState>; onDiscover: (l: Landmark) => void; posRef?: React.MutableRefObject<{ x: number; y: number }>; markersRef?: React.MutableRefObject<{ x: number; y: number }[]>; speedRef?: React.MutableRefObject<number>; viewRef?: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; onWorldClick?: (x: number, y: number) => void; fxRef?: React.MutableRefObject<Fx>; navRef?: React.MutableRefObject<Nav | null>; facilitiesRef?: React.MutableRefObject<Facility[]>; placementRef?: React.MutableRefObject<PlacementCursor | null>; onPlacement?: (x: number, y: number) => void }
+interface Props { character: Character; input: React.MutableRefObject<InputState>; onDiscover: (l: Landmark) => void; posRef?: React.MutableRefObject<{ x: number; y: number }>; markersRef?: React.MutableRefObject<{ x: number; y: number }[]>; speedRef?: React.MutableRefObject<number>; viewRef?: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; onWorldClick?: (x: number, y: number) => void; fxRef?: React.MutableRefObject<Fx>; navRef?: React.MutableRefObject<Nav | null>; facilitiesRef?: React.MutableRefObject<Facility[]>; placementRef?: React.MutableRefObject<PlacementCursor | null>; onPlacement?: (x: number, y: number) => void; solarRef?: React.MutableRefObject<{ cleanliness: number; progress: number | null }> }
 
 const SPEED = 260;
 const R = 16;
 
-export function GameCanvas({ character, input, onDiscover, posRef, markersRef, speedRef, viewRef, onWorldClick, fxRef, navRef, facilitiesRef, placementRef, onPlacement }: Props) {
+export function GameCanvas({ character, input, onDiscover, posRef, markersRef, speedRef, viewRef, onWorldClick, fxRef, navRef, facilitiesRef, placementRef, onPlacement, solarRef }: Props) {
   const ref = useRef<HTMLCanvasElement>(null);
   const clickRef = useRef(onWorldClick);
   clickRef.current = onWorldClick;
@@ -82,10 +82,11 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
         if (keys.has("s") || keys.has("arrowdown")) dy += 1;
       } else { dx = 0; dy = 0; }
       const mag = Math.hypot(dx, dy);
-      p.moving = mag > 0.15;
+      const moveSpeed = SPEED * (speedRef?.current ?? 1);
+      p.moving = mag > 0.15 && moveSpeed > 0;
       if (p.moving) {
         if (mag > 1) { dx /= mag; dy /= mag; }
-        const nx = p.x + dx * SPEED * (speedRef?.current ?? 1) * dt, ny = p.y + dy * SPEED * (speedRef?.current ?? 1) * dt;
+        const nx = p.x + dx * moveSpeed * dt, ny = p.y + dy * moveSpeed * dt;
         if (!blocked(nx, p.y)) p.x = nx;
         if (!blocked(p.x, ny)) p.y = ny;
         p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : dy < 0 ? "up" : "down";
@@ -105,7 +106,7 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
       ctx.fillStyle = "#120a3a"; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(dpr * zoom, 0, 0, dpr * zoom, dpr * (vw / 2 - cx * zoom), dpr * (vh / 2 - cy * zoom));
       ctx.drawImage(world, 0, 0);
-      drawFacilities(ctx, facilities, t);
+      drawFacilities(ctx, facilities, t, solarRef?.current.cleanliness ?? 100, solarRef?.current.progress ?? null);
       const placing = placementRef?.current;
       if (placing) {
         const step = 200;
@@ -134,7 +135,7 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
     };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); canvas.removeEventListener("pointerdown", click); canvas.removeEventListener("pointermove", move); window.removeEventListener("resize", resize); window.removeEventListener("keydown", kd); window.removeEventListener("keyup", ku); window.removeEventListener("blur", blur); };
-  }, [character, input, posRef, markersRef, speedRef, viewRef, fxRef, navRef, facilitiesRef, placementRef]);
+  }, [character, input, posRef, markersRef, speedRef, viewRef, fxRef, navRef, facilitiesRef, placementRef, solarRef]);
 
   return <canvas ref={ref} className="absolute inset-0 block h-full w-full" aria-label="Mars colony game world" />;
 }

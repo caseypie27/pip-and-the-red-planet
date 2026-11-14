@@ -9,7 +9,7 @@ import { canPlace, facilityName, stationForFacility, type BuildableKind, type Fa
 import { loadCharacter, loadSim, resetGame, saveCharacter, saveSim } from "@/game/storage";
 import { beep, play, soundForAction, unlockAudio, getSettings, setSettings, type AudioSettings } from "@/game/sound";
 import { newFx, type Nav } from "@/game/fx";
-import { report, ACHIEVEMENTS, BREAK_NAMES, checkAchievements, EVENTS, resolveEvent, SITES, visibleSites, checkObjective, infoFor, OBJECTIVES, act, actionsFor, DAY_SECONDS, EVENT_INFO, eventOf, MAX_SOL, newSim, nextSol, SOL_EVENTS, tick, type Sim, priorities, pickPrimary, LEVEL_NAMES, stormPhase, stormOf, weatherNow, BREAK_STATION, type Priority, capacityOf, shieldOf, facilityViews } from "@/game/sim";
+import { report, ACHIEVEMENTS, BREAK_NAMES, checkAchievements, EVENTS, resolveEvent, SITES, visibleSites, checkObjective, infoFor, OBJECTIVES, act, actionsFor, DAY_SECONDS, EVENT_INFO, eventOf, MAX_SOL, newSim, nextSol, SOL_EVENTS, tick, type Sim, priorities, pickPrimary, LEVEL_NAMES, stormPhase, stormOf, weatherNow, BREAK_STATION, type Priority, capacityOf, shieldOf, facilityViews, CLEANING_SECONDS } from "@/game/sim";
 import type { Character, Landmark } from "@/game/types";
 
 const WELCOME = "Welcome to Mars, astronaut! I'm PIP, your colony buddy. Let's explore our new home!";
@@ -77,6 +77,7 @@ export function MarsGame() {
   const [ready, setReady] = useState(false);
   const [character, setCharacter] = useState<Character | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [runId, setRunId] = useState(0);
   const [sim, setSim] = useState<Sim>(newSim);
   const [pip, setPip] = useState(WELCOME);
   const [found, setFound] = useState<string[]>([]);
@@ -90,6 +91,7 @@ export function MarsGame() {
   const pos = useRef({ x: 0, y: 0 });
   const simRef = useRef(sim);
   const facilitiesRef = useRef(sim.facilities);
+  const solarRef = useRef<{ cleanliness: number; progress: number | null }>({ cleanliness: sim.panels, progress: null });
   const placementRef = useRef<PlacementCursor | null>(null);
   const [placement, setPlacement] = useState<PlacementCursor | null>(null);
   const [facilitiesOpen, setFacilitiesOpen] = useState(false);
@@ -105,6 +107,7 @@ export function MarsGame() {
   const fx = useRef(newFx());
   const nav = useRef<Nav | null>(null);
   const primaryRef = useRef<string | null>(null);
+  const primaryLevelRef = useRef<number | null>(null);
   const meteorN = useRef(0);
   const [primary, setPrimary] = useState<Priority | null>(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -115,6 +118,7 @@ export function MarsGame() {
   const [logOpen, setLogOpen] = useState<"" | "log" | "ach">("");
   simRef.current = sim;
   facilitiesRef.current = sim.facilities;
+  solarRef.current = { cleanliness: sim.panels, progress: sim.cleaning > 0 ? 100 * (1 - sim.cleaning / CLEANING_SECONDS) : null };
 
   useEffect(() => { const c = loadCharacter(); setCharacter(c); setPlaying(!!c); const ls = loadSim() ?? newSim(); toastRef.current = ls.objective; setSim(ls); setReady(true); }, []);
 
@@ -129,6 +133,7 @@ export function MarsGame() {
         simRef.current = next; setSim(next);
         const completed = next.facilities.find((f) => f.built && f.remaining === 0 && prev.facilities.some((p) => p.id === f.id && p.remaining > 0));
         if (completed) { play("goal", `built-${completed.id}`); setToast({ id: ++toastN.current, text: `🏗️ ${facilityName(completed)} is ready!` }); setPip("Construction complete! The new facility is now connected to the base. Check the Facility Status panel."); }
+        if (prev.cleaning > 0 && next.cleaning === 0 && next.status === "day") { play("goal", "panels-clean"); setToast({ id: ++toastN.current, text: "✨ Solar panels fully clean — maximum efficiency!" }); setPip("Excellent cleaning! The panels are now at 100% cleanliness and will generate much more energy."); }
         if (next.status !== prev.status) {
           play(next.status === "won" ? "win" : next.status === "lost" ? "lose" : "milestone");
           if (next.status === "summary") setPip(`Sol ${next.sol} is over! Check our supplies and get ready for tomorrow.`);
@@ -147,14 +152,14 @@ export function MarsGame() {
       const cur = simRef.current, e = eventOf(cur);
       markers.current = visibleSites(cur).filter((x) => !cur.discoveries.includes(x.id));
       const wn = weatherNow(cur);
-      speed.current = cur.status === "day" && (wn === "dust" || wn === "storm-flare") ? 0.65 : 1;
+      speed.current = cur.status === "lost" ? 0 : cur.status === "day" && (wn === "dust" || wn === "storm-flare") ? 0.65 : 1;
       void e;
       // Priorities drive the alert sound, PIP warning and the one guidance arrow
       const list = cur.status === "day" && !briefRef.current ? priorities(cur) : [];
       const top = pickPrimary(list, primaryRef.current);
-      if ((top?.id ?? null) !== primaryRef.current) {
-        primaryRef.current = top?.id ?? null; setPrimary(top);
-        if (top && top.level <= 2) { play(top.level === 1 ? "critical" : "alert", top.id); setPip(`⚠️ ${top.title}! ${top.action}`); }
+      if ((top?.id ?? null) !== primaryRef.current || (top?.level ?? null) !== primaryLevelRef.current) {
+        primaryRef.current = top?.id ?? null; primaryLevelRef.current = top?.level ?? null; setPrimary(top);
+        if (top && top.level <= 2) { play(top.level === 1 ? "critical" : "alert", `${top.id}-${top.level}`); setPip(`⚠️ ${top.title}! ${top.action}`); }
         else if (top && top.level === 4 && top.id.startsWith("obj-")) play("objective");
       } else if (top) setPrimary(top);
       const bp = cur.broken ? stationPoint(BREAK_STATION[cur.broken]) : null;
