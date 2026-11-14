@@ -133,6 +133,7 @@ export function MarsGame() {
         simRef.current = next; setSim(next);
         const completed = next.facilities.find((f) => f.built && f.remaining === 0 && prev.facilities.some((p) => p.id === f.id && p.remaining > 0));
         if (completed) { play("goal", `built-${completed.id}`); setToast({ id: ++toastN.current, text: `🏗️ ${facilityName(completed)} is ready!` }); setPip("Construction complete! The new facility is now connected to the base. Check the Facility Status panel."); }
+        if (prev.cleaning > 0 && next.cleaning === 0 && next.status === "day") { play("goal", "panels-clean"); setToast({ id: ++toastN.current, text: "✨ Solar panels fully clean — maximum efficiency!" }); setPip("Excellent cleaning! The panels are now at 100% cleanliness and will generate much more energy."); }
         if (next.status !== prev.status) {
           play(next.status === "won" ? "win" : next.status === "lost" ? "lose" : "milestone");
           if (next.status === "summary") setPip(`Sol ${next.sol} is over! Check our supplies and get ready for tomorrow.`);

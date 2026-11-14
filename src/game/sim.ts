@@ -415,7 +415,7 @@ export function warnings(s: Sim): string[] {
 export function infoFor(station: string, s: Sim): string[] {
   const r = Math.round, sign = (n: number) => (n >= 0 ? "+" : "") + r(n);
   switch (station) {
-    case "solar": return [`Making ${r(s.solar)} ⚡/Sol right now`, `Using ${r(s.usage)} ⚡/Sol`, `Panels ${r(s.panels)}% clean · ${EVENT_INFO[weatherNow(s)].label}`];
+    case "solar": return [`Making ${r(s.solar)} ⚡/Sol right now`, `Using ${r(s.usage)} ⚡/Sol`, s.cleaning > 0 ? `🧽 Cleaning ${r(100 * (1 - s.cleaning / CLEANING_SECONDS))}% · recovery boost +${RATES.cleaningBoost} ⚡/Sol` : `Panels ${r(s.panels)}% clean · ${EVENT_INFO[weatherNow(s)].label}`];
     case "greenhouse": return [`Food ${sign(s.foodRate)}/Sol (crew eats ${RATES.crew.food})`, `Uses ${RATES.greenhouse.energy} ⚡ and ${r(RATES.greenhouse.water * (has(s, "irrigation") ? 0.6 : 1))} 💧 per Sol`, s.unpowered.includes("greenhouse") ? "⚠️ Not growing: no power or water" : s.systems.greenhouse ? "Growing ✅" : "Switched off"];
     case "drill": return [`Water ${sign(s.waterRate)}/Sol overall`, `Stored ${r(s.water)}/${capacityOf(s)}`, s.unpowered.includes("drill") ? "⚠️ Stopped: no power" : s.systems.drill ? "Drilling ✅" : "Switched off"];
     case "hab": case "dome": return [`Oxygen ${r(s.oxygen)} · Life support ${r(s.lifeSupport)}%`, `Base condition ${r(s.condition)}% · Radiation dose ${r(s.exposure)}`];
