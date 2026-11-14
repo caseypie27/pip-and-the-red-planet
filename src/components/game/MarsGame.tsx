@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { GameCanvas, type InputState } from "./GameCanvas";
+import { GameCanvas, type InputState, type PlacementCursor } from "./GameCanvas";
+import { BuildMenu, FacilityPanel, PlacementBar } from "./FacilityPanels";
 import { Joystick } from "./Joystick";
 import { PipPortrait } from "./Pip";
 import { CharacterSelect } from "./CharacterSelect";
 import { BUILDINGS, LANDMARKS } from "@/game/world";
+import { stationForFacility, type BuildableKind, type Facility } from "@/game/facilities";
 import { loadCharacter, loadSim, resetGame, saveCharacter, saveSim } from "@/game/storage";
 import { beep, play, soundForAction, unlockAudio, getSettings, setSettings, type AudioSettings } from "@/game/sound";
 import { newFx, type Nav } from "@/game/fx";
-import { report, ACHIEVEMENTS, BREAK_NAMES, checkAchievements, EVENTS, resolveEvent, SITES, visibleSites, checkObjective, infoFor, OBJECTIVES, act, actionsFor, DAY_SECONDS, EVENT_INFO, eventOf, MAX_SOL, newSim, nextSol, SOL_EVENTS, tick, type Sim, priorities, pickPrimary, LEVEL_NAMES, stormPhase, stormOf, weatherNow, BREAK_STATION, type Priority } from "@/game/sim";
+import { report, ACHIEVEMENTS, BREAK_NAMES, checkAchievements, EVENTS, resolveEvent, SITES, visibleSites, checkObjective, infoFor, OBJECTIVES, act, actionsFor, DAY_SECONDS, EVENT_INFO, eventOf, MAX_SOL, newSim, nextSol, SOL_EVENTS, tick, type Sim, priorities, pickPrimary, LEVEL_NAMES, stormPhase, stormOf, weatherNow, BREAK_STATION, type Priority, capacityOf, shieldOf, facilityViews } from "@/game/sim";
 import type { Character, Landmark } from "@/game/types";
 
 const WELCOME = "Welcome to Mars, astronaut! I'm PIP, your colony buddy. Let's explore our new home!";
@@ -16,15 +18,20 @@ const STATION_ICON: Record<string, string> = { solar: "☀️", dome: "🫧", gr
 
 function nearestStation(x: number, y: number, s: Sim): string | null {
   for (const site of visibleSites(s)) if (!s.discoveries.includes(site.id) && Math.hypot(x - site.x, y - site.y) < 120) return `site:${site.id}`;
-  for (const b of BUILDINGS) {
-    if (b.kind === "lander" || b.kind === "antenna") continue;
-    if (Math.hypot(x - (b.x + b.w / 2), y - (b.y + b.h / 2)) < Math.max(b.w, b.h) / 2 + 90) return b.kind;
+  for (const b of s.facilities) {
+    if (b.kind === "lander" || b.kind === "antenna" || b.remaining > 0) continue;
+    if (Math.hypot(x - (b.x + b.w / 2), y - (b.y + b.h / 2)) < Math.max(b.w, b.h) / 2 + 90) return stationForFacility(b.kind);
   }
   return null;
 }
 
-function stationPoint(st: string): { x: number; y: number; top: number } | null {
+function stationPoint(st: string, facilities?: Facility[], from?: { x: number; y: number }): { x: number; y: number; top: number } | null {
   if (st.startsWith("site:")) { const site = SITES.find((x) => x.id === st.slice(5)); return site ? { x: site.x, y: site.y, top: site.y - 110 } : null; }
+  if (facilities) {
+    const matches = facilities.filter((f) => f.remaining <= 0 && stationForFacility(f.kind) === st)
+      .sort((a, b) => from ? Math.hypot(a.x + a.w / 2 - from.x, a.y + a.h / 2 - from.y) - Math.hypot(b.x + b.w / 2 - from.x, b.y + b.h / 2 - from.y) : Number(b.primary) - Number(a.primary));
+    const f = matches[0]; if (f) return { x: f.x + f.w / 2, y: f.y + f.h / 2, top: f.y - 20 };
+  }
   const b = BUILDINGS.find((x) => x.kind === st); return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2, top: b.y - 20 } : null;
 }
 
@@ -35,17 +42,17 @@ function targetPoint(st: string, from: { x: number; y: number }) {
   return b ? { x: b.x + b.w / 2, y: b.y + b.h / 2, top: b.y - 20 } : null;
 }
 
-function hitStation(x: number, y: number, st: string): boolean {
+function hitStation(x: number, y: number, st: string, s: Sim): boolean {
   if (st.startsWith("site:")) { const p = stationPoint(st); return !!p && Math.hypot(x - p.x, y - p.y) < 80; }
-  return BUILDINGS.some((b) => b.kind === st && x > b.x - 20 && x < b.x + b.w + 20 && y > b.y - 40 && y < b.y + b.h + 20);
+  return s.facilities.some((b) => b.remaining <= 0 && stationForFacility(b.kind) === st && x > b.x - 20 && x < b.x + b.w + 20 && y > b.y - 40 && y < b.y + b.h + 20);
 }
 
-function FacilityButton({ station, view, label, onOpen }: { station: string; view: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; label: React.ReactNode; onOpen: () => void }) {
+function FacilityButton({ station, view, facilities, pos, label, onOpen }: { station: string; view: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; facilities: React.MutableRefObject<Facility[]>; pos: React.MutableRefObject<{ x: number; y: number }>; label: React.ReactNode; onOpen: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     let raf = 0;
     const loop = () => {
-      const p = stationPoint(station), el = ref.current, v = view.current;
+      const p = stationPoint(station, facilities.current, pos.current), el = ref.current, v = view.current;
       if (p && el) {
         const vw = window.innerWidth, vh = window.innerHeight;
         const sx = vw / 2 + (p.x - v.cx) * v.zoom, sy = vh / 2 + (p.top - v.cy) * v.zoom;
@@ -58,7 +65,7 @@ function FacilityButton({ station, view, label, onOpen }: { station: string; vie
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [station, view]);
+  }, [station, view, facilities, pos]);
   return (
     <button ref={ref} onClick={onOpen} className="hud-panel start-btn pointer-events-auto absolute left-0 top-0 z-10 flex items-center gap-2 rounded-2xl px-5 py-3 text-base font-bold sm:text-lg" style={{ transform: "translate(-9999px,0)" }}>
       {label}
