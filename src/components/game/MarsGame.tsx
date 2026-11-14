@@ -196,9 +196,9 @@ export function MarsGame() {
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { const k = e.key.toLowerCase();
       if (simRef.current.event && /^[12]$/.test(k)) { choose(Number(k) - 1); return; }
+      if (k === "escape") { setOpen(false); setFacilitiesOpen(false); setBuildOpen(false); placementRef.current = null; setPlacement(null); return; }
       if (!station) return;
-      if (k === "escape") { setOpen(false); setFacilitiesOpen(false); setBuildOpen(false); placementRef.current = null; setPlacement(null); }
-      else if (open && /^[1-9]$/.test(k)) { const a = actionsFor(station, simRef.current)[Number(k) - 1]; if (a) doAction(a.id); } };
+      if (open && /^[1-9]$/.test(k)) { const a = actionsFor(station, simRef.current)[Number(k) - 1]; if (a) doAction(a.id); } };
     window.addEventListener("keydown", kd); return () => window.removeEventListener("keydown", kd);
   }, [station, open]);
 

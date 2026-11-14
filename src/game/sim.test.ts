@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { report, act, checkAchievements, resolveEvent, checkObjective, DAY_SECONDS, newSim, nextSol, tick } from "./sim";
+import { report, act, checkAchievements, resolveEvent, checkObjective, DAY_SECONDS, newSim, nextSol, tick, capacityOf, shieldOf, facilityViews, researchCost } from "./sim";
+import { canPlace, getDeco, type BuildableKind } from "./facilities";
 
 const runDay = (s = newSim()) => { for (let t = 0; t < DAY_SECONDS * 3 && s.status === "day"; t += 0.5) { if (s.event) s = resolveEvent(s, 1).sim; s = tick(s, 0.5); } return s; };
 
@@ -77,6 +78,70 @@ describe("survival sim", () => {
 });
 
 import { priorities, pickPrimary, stormOf, stormPhase, weatherNow } from "./sim";
+describe("facility management and expansion", () => {
+  const openSite = (s = newSim(), kind: BuildableKind = "solar") => {
+    for (let y = 520; y < 2200; y += 160) for (let x = 240; x < 3000; x += 160) if (canPlace(s.facilities, kind, x, y).ok) return { x, y };
+    throw new Error("No open test site");
+  };
+  it("switching a facility OFF stops its production and running consumption", () => {
+    const base = { ...newSim(), systems: { oxygen: false, greenhouse: true, drill: false } };
+    const off = act(base, "facility-toggle:base-greenhouse-1").sim;
+    const onTick = tick(base, 2), offTick = tick(off, 2);
+    expect(facilityViews(off)[0] && facilityViews(off).find((f) => f.id === "base-greenhouse-1")?.status).toBe("inactive");
+    expect(offTick.food).toBeLessThan(onTick.food);
+    expect(offTick.energy).toBeGreaterThan(onTick.energy);
+  });
+  it("construction deducts 25 materials and 10 energy only when confirmed", () => {
+    const s = newSim(), p = openSite(s);
+    const r = act(s, `build:solar:${p.x}:${p.y}`);
+    expect(r.sim.materials).toBe(15); expect(r.sim.energy).toBe(60);
+    expect(r.sim.facilities.at(-1)?.remaining).toBe(5);
+    expect(s.materials).toBe(40); expect(s.energy).toBe(70);
+  });
+  it("unfinished buildings do not produce, then join the resource network", () => {
+    const s = newSim(), p = openSite(s), started = act(s, `build:solar:${p.x}:${p.y}`).sim;
+    expect(tick(started, 1).solar).toBeCloseTo(tick(s, 1).solar);
+    const complete = tick(started, 5);
+    expect(complete.facilities.at(-1)?.remaining).toBe(0);
+    expect(complete.solar).toBeGreaterThan(tick(s, 5).solar);
+  });
+  it("placement rejects buildings, rocks and uneven or protected terrain", () => {
+    const s = newSim();
+    expect(canPlace(s.facilities, "hab", 1480, 1150).ok).toBe(false);
+    const rock = getDeco().rocks[0]!;
+    expect(canPlace(s.facilities, "solar", rock.x, rock.y).ok).toBe(false);
+    expect(canPlace(s.facilities, "solar", 1500, 560).ok).toBe(false);
+    expect(openSite(s)).toBeTruthy();
+  });
+  it("invalid or unaffordable confirmation spends nothing", () => {
+    const s = newSim();
+    expect(act(s, "build:oxygen:1480:1150").sim).toBe(s);
+    const poor = { ...s, materials: 0 }, p = openSite(poor);
+    const r = act(poor, `build:oxygen:${p.x}:${p.y}`);
+    expect(r.sim).toBe(poor); expect(r.msg).toContain("35 more materials"); expect(r.sim.energy).toBe(70);
+  });
+  it("completed storage adds 30 capacity and a shelter adds 8 shielding", () => {
+    let s = newSim(), p = openSite(s, "storage");
+    s = act(s, `build:storage:${p.x}:${p.y}`).sim; s = tick(s, 5);
+    expect(capacityOf(s)).toBe(130);
+    s = { ...s, materials: 100, energy: 100 }; p = openSite(s, "shelter");
+    s = act(s, `build:shelter:${p.x}:${p.y}`).sim; s = tick(s, 7);
+    expect(shieldOf(s)).toBe(38);
+  });
+  it("an extra laboratory reduces research costs by 15 percent", () => {
+    let s = newSim(); const p = openSite(s, "lab");
+    s = act(s, `build:lab:${p.x}:${p.y}`).sim; s = { ...tick(s, 8), energy: 100 };
+    expect(researchCost(s, "panels")).toEqual({ materials: 13, energy: 17 });
+  });
+  it("damaged facilities clearly need repair instead of showing operational", () => {
+    const s = { ...newSim(), broken: "greenhouse" as const };
+    expect(facilityViews(s).find((f) => f.id === "base-greenhouse-1")?.status).toBe("damaged");
+    const repaired = act(s, "facility-repair:base-greenhouse-1");
+    expect(repaired.sim.materials).toBe(30); expect(repaired.sim.broken).toBeNull();
+    expect(facilityViews(repaired.sim).find((f) => f.id === "base-greenhouse-1")?.status).toBe("operational");
+  });
+});
+
 describe("priorities and storms", () => {
   const top = (s: ReturnType<typeof newSim>) => priorities(s)[0]!;
   it("low energy points to the solar panels", () => expect(top({ ...newSim(), energy: 10 }).station).toBe("solar"));

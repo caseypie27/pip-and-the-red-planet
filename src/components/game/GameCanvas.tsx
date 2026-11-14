@@ -75,11 +75,12 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
       const nextObstacleKey = facilities.filter((f) => f.built).map((f) => f.id).join("|");
       if (nextObstacleKey !== obstacleKey) { obstacleKey = nextObstacleKey; obstacles = getObstacles(facilities); }
       let dx = input.current.x, dy = input.current.y;
-      if (placementRef?.current) { dx = 0; dy = 0; }
-      if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
-      if (keys.has("d") || keys.has("arrowright")) dx += 1;
-      if (keys.has("w") || keys.has("arrowup")) dy -= 1;
-      if (keys.has("s") || keys.has("arrowdown")) dy += 1;
+      if (!placementRef?.current) {
+        if (keys.has("a") || keys.has("arrowleft")) dx -= 1;
+        if (keys.has("d") || keys.has("arrowright")) dx += 1;
+        if (keys.has("w") || keys.has("arrowup")) dy -= 1;
+        if (keys.has("s") || keys.has("arrowdown")) dy += 1;
+      } else { dx = 0; dy = 0; }
       const mag = Math.hypot(dx, dy);
       p.moving = mag > 0.15;
       if (p.moving) {
