@@ -82,10 +82,11 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
         if (keys.has("s") || keys.has("arrowdown")) dy += 1;
       } else { dx = 0; dy = 0; }
       const mag = Math.hypot(dx, dy);
-      p.moving = mag > 0.15;
+      const moveSpeed = SPEED * (speedRef?.current ?? 1);
+      p.moving = mag > 0.15 && moveSpeed > 0;
       if (p.moving) {
         if (mag > 1) { dx /= mag; dy /= mag; }
-        const nx = p.x + dx * SPEED * (speedRef?.current ?? 1) * dt, ny = p.y + dy * SPEED * (speedRef?.current ?? 1) * dt;
+        const nx = p.x + dx * moveSpeed * dt, ny = p.y + dy * moveSpeed * dt;
         if (!blocked(nx, p.y)) p.x = nx;
         if (!blocked(p.x, ny)) p.y = ny;
         p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? "left" : "right") : dy < 0 ? "up" : "down";

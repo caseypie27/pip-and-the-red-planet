@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { report, act, checkAchievements, resolveEvent, checkObjective, DAY_SECONDS, newSim, nextSol, tick, capacityOf, shieldOf, facilityViews, researchCost } from "./sim";
+import { report, act, checkAchievements, resolveEvent, checkObjective, DAY_SECONDS, newSim, nextSol, tick, capacityOf, shieldOf, facilityViews, researchCost, RATES, CLEANING_SECONDS, solarOutput, warnings } from "./sim";
 import { canPlace, getDeco, type BuildableKind } from "./facilities";
 
 const runDay = (s = newSim()) => { for (let t = 0; t < DAY_SECONDS * 3 && s.status === "day"; t += 0.5) { if (s.event) s = resolveEvent(s, 1).sim; s = tick(s, 0.5); } return s; };

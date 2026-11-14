@@ -90,6 +90,7 @@ export function MarsGame() {
   const pos = useRef({ x: 0, y: 0 });
   const simRef = useRef(sim);
   const facilitiesRef = useRef(sim.facilities);
+  const solarRef = useRef<{ cleanliness: number; progress: number | null }>({ cleanliness: sim.panels, progress: null });
   const placementRef = useRef<PlacementCursor | null>(null);
   const [placement, setPlacement] = useState<PlacementCursor | null>(null);
   const [facilitiesOpen, setFacilitiesOpen] = useState(false);

@@ -199,6 +199,8 @@ export function tick(prev: Sim, dt: number): Sim {
   s.water = clamp(s.water - crewWater * k, 0, cap);
   s.food = clamp(s.food - crewFood * k, 0, cap);
   s.usage = usage; s.energyUsed += usage * k; if (s.energy <= 0.5) s.powerOut += dt; s.foodRate = food - crewFood; s.waterRate = water - crewWater;
+  // Oxygen is immediately fatal: no movement, further ticks, or gradual-damage grace period.
+  if (s.oxygen <= 0) { s.time = Math.min(DAY_SECONDS, s.time + dt); return oxygenGameOver(s); }
 
   // Radiation exposure grows when shielding is weak
   const rad = envRadiation(ev) * 12 * (1 - shieldOf(s) / 100) - (has(s, "radmeds") ? 8 : 4);
