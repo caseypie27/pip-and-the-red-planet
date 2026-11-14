@@ -107,6 +107,7 @@ export function MarsGame() {
   const fx = useRef(newFx());
   const nav = useRef<Nav | null>(null);
   const primaryRef = useRef<string | null>(null);
+  const primaryLevelRef = useRef<number | null>(null);
   const meteorN = useRef(0);
   const [primary, setPrimary] = useState<Priority | null>(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
