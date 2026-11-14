@@ -77,6 +77,7 @@ export function MarsGame() {
   const [ready, setReady] = useState(false);
   const [character, setCharacter] = useState<Character | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [runId, setRunId] = useState(0);
   const [sim, setSim] = useState<Sim>(newSim);
   const [pip, setPip] = useState(WELCOME);
   const [found, setFound] = useState<string[]>([]);

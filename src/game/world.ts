@@ -273,14 +273,14 @@ export function drawDynamic(ctx: CanvasRenderingContext2D, t: number, visited: S
   }
 }
 
-/** Player-built facilities and construction states, drawn above the static base. */
-export function drawFacilities(ctx: CanvasRenderingContext2D, facilities: Facility[], t: number) {
+/** Dynamic solar arrays plus player-built facilities and construction states. */
+export function drawFacilities(ctx: CanvasRenderingContext2D, facilities: Facility[], t: number, panels = 100, cleaningProgress: number | null = null) {
   for (const f of facilities) {
-    if (!f.built) continue;
+    if (!f.built && f.kind !== "solar") continue;
     const kind = f.kind === "oxygen" ? "dome" : f.kind;
     ctx.save();
     if (f.remaining > 0) ctx.globalAlpha = 0.48;
-    drawBuilding(ctx, { kind, x: f.x, y: f.y, w: f.w, h: f.h });
+    drawBuilding(ctx, { kind, x: f.x, y: f.y, w: f.w, h: f.h }, f.kind === "solar" ? { cleanliness: panels, progress: f.remaining > 0 ? null : cleaningProgress, time: t } : undefined);
     ctx.restore();
     if (f.remaining > 0) {
       const pulse = 0.55 + Math.sin(t * 6) * 0.2;

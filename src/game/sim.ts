@@ -263,7 +263,7 @@ export function actionsFor(station: string, s: Sim): Action[] {
 }
 function baseActions(station: string, s: Sim): Action[] {
   switch (station) {
-    case "solar": return [{ id: "clean", label: `Clean panels (${Math.round(s.panels)}% clean)`, cost: "5 💧" }];
+    case "solar": return [{ id: "clean", label: s.cleaning > 0 ? `🧽 Cleaning panels… ${Math.round(100 * (1 - s.cleaning / CLEANING_SECONDS))}%` : `Clean panels (${Math.round(s.panels)}% clean)`, cost: s.cleaning > 0 ? "BOOST ACTIVE" : "5 💧" }];
     case "dome": return [
       { id: "toggle-oxygen", label: `Oxygen generator: ${s.systems.oxygen ? "ON" : "OFF"}` },
       { id: "repair-ls", label: `Fix life support (${Math.round(s.lifeSupport)}%)`, cost: "10 🔩" },

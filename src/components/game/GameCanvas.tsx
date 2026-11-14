@@ -135,7 +135,7 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
     };
     raf = requestAnimationFrame(frame);
     return () => { cancelAnimationFrame(raf); canvas.removeEventListener("pointerdown", click); canvas.removeEventListener("pointermove", move); window.removeEventListener("resize", resize); window.removeEventListener("keydown", kd); window.removeEventListener("keyup", ku); window.removeEventListener("blur", blur); };
-  }, [character, input, posRef, markersRef, speedRef, viewRef, fxRef, navRef, facilitiesRef, placementRef]);
+  }, [character, input, posRef, markersRef, speedRef, viewRef, fxRef, navRef, facilitiesRef, placementRef, solarRef]);
 
   return <canvas ref={ref} className="absolute inset-0 block h-full w-full" aria-label="Mars colony game world" />;
 }
