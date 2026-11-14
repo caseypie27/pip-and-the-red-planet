@@ -150,7 +150,7 @@ export function MarsGame() {
       const cur = simRef.current, e = eventOf(cur);
       markers.current = visibleSites(cur).filter((x) => !cur.discoveries.includes(x.id));
       const wn = weatherNow(cur);
-      speed.current = cur.status === "day" && (wn === "dust" || wn === "storm-flare") ? 0.65 : 1;
+      speed.current = cur.status === "lost" ? 0 : cur.status === "day" && (wn === "dust" || wn === "storm-flare") ? 0.65 : 1;
       void e;
       // Priorities drive the alert sound, PIP warning and the one guidance arrow
       const list = cur.status === "day" && !briefRef.current ? priorities(cur) : [];

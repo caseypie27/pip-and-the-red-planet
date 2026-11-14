@@ -401,7 +401,7 @@ export function act(prev: Sim, id: string): { sim: Sim; msg: string } {
 
 export function warnings(s: Sim): string[] {
   const w: string[] = [];
-  if (s.oxygen < 25) w.push(s.oxygen <= 0 ? "OUT OF OXYGEN!" : "Low oxygen");
+  if (s.oxygen <= 20) w.push(s.oxygen <= 0 ? "OUT OF OXYGEN!" : s.oxygen <= 10 ? "Critical oxygen" : "Low oxygen");
   if (s.water < 20) w.push(s.water <= 0 ? "No water!" : "Low water");
   if (s.food < 20) w.push(s.food <= 0 ? "No food!" : "Low food");
   if (s.energy < 15) w.push("Power shortage");

@@ -141,6 +141,49 @@ describe("facility management and expansion", () => {
   });
 });
 
+describe("solar cleaning and oxygen survival repairs", () => {
+  it("dirty panels generate less than fully clean panels", () => {
+    const dirty = { ...newSim(), time: 45, panels: 30, cleaning: 0 };
+    const clean = { ...dirty, panels: 100 };
+    expect(solarOutput(dirty)).toBeLessThan(solarOutput(clean));
+    expect(solarOutput(clean)).toBeCloseTo(72);
+  });
+  it("cleaning immediately beats normal 37 energy/Sol consumption and raises stored energy", () => {
+    const dirty = { ...newSim(), time: 45, panels: 30, energy: 50 };
+    const started = act(dirty, "clean").sim;
+    expect(started.cleaning).toBe(CLEANING_SECONDS); expect(started.water).toBe(65);
+    expect(solarOutput(started)).toBeGreaterThan(37);
+    const after = tick(started, 0.5);
+    expect(after.energy).toBeGreaterThan(started.energy);
+    expect(after.panels).toBeGreaterThan(started.panels);
+    expect(after.solar).toBeGreaterThan(after.usage);
+  });
+  it("cleaning takes 6 seconds and finishes at 100 percent efficiency", () => {
+    let s = act({ ...newSim(), time: 20, panels: 30 }, "clean").sim;
+    s = tick(s, 3);
+    expect(s.cleaning).toBe(3); expect(s.panels).toBeGreaterThan(30); expect(s.panels).toBeLessThan(100);
+    s = tick(s, 3);
+    expect(s.cleaning).toBe(0); expect(s.panels).toBe(100);
+  });
+  it("crew oxygen use is 12 per Sol, half the former 24 rate", () => {
+    expect(RATES.crew.oxygen).toBe(12);
+    const s = tick({ ...newSim(), systems: { oxygen: false, greenhouse: false, drill: false } }, 45);
+    expect(s.oxygen).toBeCloseTo(74);
+  });
+  it("oxygen warnings begin at 20 and become critical at 10", () => {
+    expect(warnings({ ...newSim(), oxygen: 21 })).not.toContain("Low oxygen");
+    expect(warnings({ ...newSim(), oxygen: 20 })).toContain("Low oxygen");
+    expect(priorities({ ...newSim(), oxygen: 20 }).find((p) => p.id === "oxygen")?.level).toBe(2);
+    expect(warnings({ ...newSim(), oxygen: 10 })).toContain("Critical oxygen");
+    expect(priorities({ ...newSim(), oxygen: 10 }).find((p) => p.id === "oxygen")?.level).toBe(1);
+  });
+  it("crossing zero clamps oxygen and immediately locks further simulation and actions", () => {
+    const s = tick({ ...newSim(), oxygen: 0.01, systems: { oxygen: false, greenhouse: false, drill: false } }, 1);
+    expect(s.oxygen).toBe(0); expect(s.status).toBe("lost"); expect(s.failureCause).toBe("oxygen");
+    expect(tick(s, 1)).toBe(s); expect(act(s, "toggle-oxygen").sim).toBe(s);
+  });
+});
+
 describe("priorities and storms", () => {
   const top = (s: ReturnType<typeof newSim>) => priorities(s)[0]!;
   it("low energy points to the solar panels", () => expect(top({ ...newSim(), energy: 10 }).station).toBe("solar"));
