@@ -116,48 +116,65 @@ export const envRadiation = (e: EventKind) => (e === "flare" || e === "storm-fla
 /** Advance the simulation by dt seconds (mutates a copy). */
 export function tick(prev: Sim, dt: number): Sim {
   if (prev.status !== "day" || prev.event) return prev;
-  const s: Sim = { ...prev, systems: { ...prev.systems } };
+  const s: Sim = { ...prev, systems: { ...prev.systems }, facilities: prev.facilities.map((f) => ({ ...f })), facilityUnpowered: [] };
   const k = dt / DAY_SECONDS;
   const ev = weatherNow(s);
   const dusty = ev === "dust" || ev === "storm-flare";
 
-  // Power: solar depends on daylight, weather and panel cleanliness
-  s.solar = RATES.solarPeak * daylight(s.time) * (dusty ? 0.35 : 1) * (s.panels / 100) * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
+  // Construction uses mission time and joins the resource network only when complete.
+  s.facilities = s.facilities.map((f) => {
+    if (f.remaining <= 0) return f;
+    const remaining = Math.max(0, f.remaining - dt);
+    if (remaining === 0) addLog(s, "🏗️", `${facilityName(f)} construction complete`);
+    return { ...f, remaining };
+  });
+
+  // Every active solar station contributes power; OFF or unfinished stations contribute nothing.
+  const solarStations = s.facilities.filter((f) => f.kind === "solar" && facilitySwitchedOn(s, f)).length;
+  s.solar = (RATES.solarPeak / 2) * solarStations * daylight(s.time) * (dusty ? 0.35 : 1) * (s.panels / 100) * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
   s.energy = clamp(s.energy + s.solar * k); s.solarMade += s.solar * k;
   s.panels = clamp(s.panels - (dusty ? 35 : 10) * k);
   s.lifeSupport = clamp(s.lifeSupport - (dusty ? 14 : 9) * k);
 
-  // Consumers, in priority order. Without enough energy a system stops working.
-  const unpowered: SystemId[] = [];
+  // Consumers, in priority order. Each facility stops independently without enough energy.
+  const unpowered = new Set<SystemId>();
   let usage = 0, food = 0, water = 0;
   const use = (e: number) => { usage += e; if (s.energy >= e * k) { s.energy -= e * k; return true; } s.energy = 0; return false; };
+  const wanted = (f: Facility) => f.remaining <= 0 && f.enabled && !(f.primary && (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") && !s.systems[f.kind]);
+  const stop = (f: Facility) => { s.facilityUnpowered.push(f.id); if (f.kind === "oxygen" || f.kind === "greenhouse" || f.kind === "drill") unpowered.add(f.kind); };
   const baseOk = use(RATES.baseEnergy);
-  if (s.systems.oxygen && s.broken === "oxygen") unpowered.push("oxygen");
-  else if (s.systems.oxygen) {
+  for (const f of s.facilities.filter((f) => f.kind === "oxygen" && wanted(f))) {
+    if (facilityDamaged(s, f)) { stop(f); continue; }
     if (s.water > 0 && use(RATES.oxygenGen.energy)) { s.water -= RATES.oxygenGen.water * k; water -= RATES.oxygenGen.water; s.oxygen += RATES.oxygenGen.oxygen * (s.lifeSupport / 100) * k; }
-    else unpowered.push("oxygen");
+    else stop(f);
   }
-  if (s.systems.greenhouse && s.broken === "greenhouse") unpowered.push("greenhouse");
-  else if (s.systems.greenhouse) {
+  for (const f of s.facilities.filter((f) => f.kind === "greenhouse" && wanted(f))) {
+    if (facilityDamaged(s, f)) { stop(f); continue; }
     if (s.water > 0 && use(RATES.greenhouse.energy)) { const gw = RATES.greenhouse.water * (has(s, "irrigation") ? 0.6 : 1); s.water -= gw * k; water -= gw; food += RATES.greenhouse.food; s.foodMade += RATES.greenhouse.food * k; s.food += RATES.greenhouse.food * k; s.oxygen += RATES.greenhouse.oxygen * k; }
-    else unpowered.push("greenhouse");
+    else stop(f);
   }
-  if (s.systems.drill && s.broken === "drill") unpowered.push("drill");
-  else if (s.systems.drill) {
+  for (const f of s.facilities.filter((f) => f.kind === "drill" && wanted(f))) {
+    if (facilityDamaged(s, f)) { stop(f); continue; }
     const dw = RATES.drill.water * (s.drillHigh ? 1.7 : 1) * (has(s, "deepdrill") ? 1.4 : 1);
-    if (use(RATES.drill.energy * (s.drillHigh ? 1.8 : 1))) { s.water += dw * k; s.waterMade += dw * k; water += dw; } else unpowered.push("drill");
+    if (use(RATES.drill.energy * (s.drillHigh ? 1.8 : 1))) { s.water += dw * k; s.waterMade += dw * k; water += dw; } else stop(f);
   }
-  s.unpowered = unpowered;
+  // Extra support buildings have running costs, so their benefits are a real power trade-off.
+  for (const f of s.facilities.filter((f) => f.built && wanted(f) && (f.kind === "hab" || f.kind === "lab" || f.kind === "shelter"))) {
+    const rate = f.kind === "hab" || f.kind === "lab" ? 4 : 3;
+    if (!use(rate)) stop(f);
+  }
+  s.unpowered = [...unpowered];
 
   // Crew needs
-  const cap = s.capacity;
-  s.oxygen = clamp(s.oxygen - RATES.crew.oxygen * (has(s, "recycler") ? 0.8 : 1) * k, 0, cap);
-  s.water = clamp(s.water - RATES.crew.water * k, 0, cap);
-  s.food = clamp(s.food - RATES.crew.food * k, 0, cap);
-  s.usage = usage; s.energyUsed += usage * k; if (s.energy <= 0.5) s.powerOut += dt; s.foodRate = food - RATES.crew.food; s.waterRate = water - RATES.crew.water;
+  const cap = capacityOf(s), supplyFactor = crewSupplyFactor(s);
+  const crewFood = RATES.crew.food * supplyFactor, crewWater = RATES.crew.water * supplyFactor;
+  s.oxygen = clamp(s.oxygen - RATES.crew.oxygen * supplyFactor * (has(s, "recycler") ? 0.8 : 1) * k, 0, cap);
+  s.water = clamp(s.water - crewWater * k, 0, cap);
+  s.food = clamp(s.food - crewFood * k, 0, cap);
+  s.usage = usage; s.energyUsed += usage * k; if (s.energy <= 0.5) s.powerOut += dt; s.foodRate = food - crewFood; s.waterRate = water - crewWater;
 
   // Radiation exposure grows when shielding is weak
-  const rad = envRadiation(ev) * 12 * (1 - s.shield / 100) - (has(s, "radmeds") ? 8 : 4);
+  const rad = envRadiation(ev) * 12 * (1 - shieldOf(s) / 100) - (has(s, "radmeds") ? 8 : 4);
   s.exposure = clamp(s.exposure + rad * k); s.peakExposure = Math.max(s.peakExposure, s.exposure);
 
   // Base condition takes damage from shortages and hazards (gradual, never instant)
