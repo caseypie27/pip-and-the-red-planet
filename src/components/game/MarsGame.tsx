@@ -89,6 +89,11 @@ export function MarsGame() {
   const input = useRef<InputState>({ x: 0, y: 0 });
   const pos = useRef({ x: 0, y: 0 });
   const simRef = useRef(sim);
+  const facilitiesRef = useRef(sim.facilities);
+  const placementRef = useRef<PlacementCursor | null>(null);
+  const [placement, setPlacement] = useState<PlacementCursor | null>(null);
+  const [facilitiesOpen, setFacilitiesOpen] = useState(false);
+  const [buildOpen, setBuildOpen] = useState(false);
   const toastRef = useRef(0);
   const markers = useRef<{ x: number; y: number }[]>([]);
   const speed = useRef(1);
@@ -109,6 +114,7 @@ export function MarsGame() {
   useEffect(() => { unlockAudio(); }, []);
   const [logOpen, setLogOpen] = useState<"" | "log" | "ach">("");
   simRef.current = sim;
+  facilitiesRef.current = sim.facilities;
 
   useEffect(() => { const c = loadCharacter(); setCharacter(c); setPlaying(!!c); const ls = loadSim() ?? newSim(); toastRef.current = ls.objective; setSim(ls); setReady(true); }, []);
 
@@ -121,6 +127,8 @@ export function MarsGame() {
       const prev = simRef.current, next = briefRef.current ? prev : reward(tick(prev, dt));
       if (next !== prev) {
         simRef.current = next; setSim(next);
+        const completed = next.facilities.find((f) => f.built && f.remaining === 0 && prev.facilities.some((p) => p.id === f.id && p.remaining > 0));
+        if (completed) { play("goal", `built-${completed.id}`); setToast({ id: ++toastN.current, text: `🏗️ ${completed.kind === "drill" ? "Water Extraction Unit" : completed.kind === "oxygen" ? "Oxygen Generator" : completed.kind} is ready!` }); setPip("Construction complete! The new facility is now connected to the base. Check the Facility Status panel."); }
         if (next.status !== prev.status) {
           play(next.status === "won" ? "win" : next.status === "lost" ? "lose" : "milestone");
           if (next.status === "summary") setPip(`Sol ${next.sol} is over! Check our supplies and get ready for tomorrow.`);
@@ -157,7 +165,7 @@ export function MarsGame() {
       const tp = top?.station ? targetPoint(top.station, pos.current) : null;
       const nearT = top?.station && nearestStation(pos.current.x, pos.current.y, cur) === top.station;
       nav.current = getSettings().nav && tp && top && !nearT && !cur.event ? { x: tp.x, y: tp.top + 20, label: `${top.icon} ${top.guide}`, level: top.level } : null;
-      if (next.event && !prev.event) { play(next.event.kind === "meteor" ? "meteor" : next.event.kind === "malfunction" ? "malfunction" : "alert", "event"); setPip(`${EVENTS[next.event.kind].icon} ${EVENTS[next.event.kind].title}! We need to decide what to do.`); }
+      if (next.event && !prev.event) { placementRef.current = null; setPlacement(null); setBuildOpen(false); setFacilitiesOpen(false); play(next.event.kind === "meteor" ? "meteor" : next.event.kind === "malfunction" ? "malfunction" : "alert", "event"); setPip(`${EVENTS[next.event.kind].icon} ${EVENTS[next.event.kind].title}! We need to decide what to do.`); }
       const st = nearestStation(pos.current.x, pos.current.y, cur);
       setStation((o) => { if (o !== st) setOpen(false); return st; });
     }, 200);
@@ -181,14 +189,15 @@ export function MarsGame() {
   const doAction = (aid: string) => {
     const r = act(simRef.current, aid), ok = r.sim !== simRef.current;
     play(ok ? soundForAction(aid) : "fail"); setFlash({ id: Date.now(), ok });
-    const n = reward(r.sim); simRef.current = n; setSim(n); saveSim(n); if (r.msg) setPip(ok ? r.msg : `❌ ${r.msg}`);
+    const n = reward(r.sim); simRef.current = n; facilitiesRef.current = n.facilities; setSim(n); saveSim(n); if (r.msg) setPip(ok ? r.msg : `❌ ${r.msg}`);
+    return ok;
   };
 
   useEffect(() => {
     const kd = (e: KeyboardEvent) => { const k = e.key.toLowerCase();
       if (simRef.current.event && /^[12]$/.test(k)) { choose(Number(k) - 1); return; }
       if (!station) return;
-      if (k === "escape") setOpen(false);
+      if (k === "escape") { setOpen(false); setFacilitiesOpen(false); setBuildOpen(false); placementRef.current = null; setPlacement(null); }
       else if (open && /^[1-9]$/.test(k)) { const a = actionsFor(station, simRef.current)[Number(k) - 1]; if (a) doAction(a.id); } };
     window.addEventListener("keydown", kd); return () => window.removeEventListener("keydown", kd);
   }, [station, open]);
