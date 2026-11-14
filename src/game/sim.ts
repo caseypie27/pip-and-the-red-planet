@@ -118,9 +118,26 @@ export const eventOf = (s: Sim) => SOL_EVENTS[s.sol - 1] ?? "clear";
 export const daylight = (time: number) => Math.max(0.1, Math.sin((Math.PI * time) / DAY_SECONDS));
 export const envRadiation = (e: EventKind) => (e === "flare" || e === "storm-flare" ? 5 : e === "dust" ? 0.8 : 1);
 
+/** One shared solar calculation: cleanliness changes real output, and cleaning adds a short recovery boost. */
+export function solarOutput(s: Sim, cleaningActive = s.cleaning > 0): number {
+  const dustyWeather = weatherNow(s) === "dust" || weatherNow(s) === "storm-flare";
+  const stations = s.facilities.filter((f) => f.kind === "solar" && facilitySwitchedOn(s, f)).length;
+  const normal = (RATES.solarPeak / 2) * stations * daylight(s.time) * (dustyWeather ? 0.35 : 1) * (s.panels / 100)
+    * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
+  return normal + (cleaningActive ? RATES.cleaningBoost * (dustyWeather ? 0.5 : 1) : 0);
+}
+
+function oxygenGameOver(prev: Sim): Sim {
+  const s: Sim = { ...prev, oxygen: 0, cleaning: 0, status: "lost", failureCause: "oxygen" };
+  addLog(s, "🫧", "Oxygen reached 0%. The astronaut could not survive.");
+  return s;
+}
+
 /** Advance the simulation by dt seconds (mutates a copy). */
 export function tick(prev: Sim, dt: number): Sim {
-  if (prev.status !== "day" || prev.event) return prev;
+  if (prev.status !== "day") return prev;
+  if (prev.oxygen <= 0) return oxygenGameOver(prev);
+  if (prev.event) return prev;
   const s: Sim = { ...prev, systems: { ...prev.systems }, facilities: prev.facilities.map((f) => ({ ...f })), facilityUnpowered: [] };
   const k = dt / DAY_SECONDS;
   const ev = weatherNow(s);
@@ -134,11 +151,16 @@ export function tick(prev: Sim, dt: number): Sim {
     return { ...f, remaining };
   });
 
-  // Every active solar station contributes power; OFF or unfinished stations contribute nothing.
-  const solarStations = s.facilities.filter((f) => f.kind === "solar" && facilitySwitchedOn(s, f)).length;
-  s.solar = (RATES.solarPeak / 2) * solarStations * daylight(s.time) * (dusty ? 0.35 : 1) * (s.panels / 100) * (has(s, "panels") ? 1.25 : 1) * (s.broken === "panels" ? 0.5 : 1);
+  // Cleaning is sustained work, not an instant visual reset. Its boost exceeds normal base consumption.
+  const wasCleaning = s.cleaning > 0;
+  if (wasCleaning) {
+    s.cleaning = Math.max(0, s.cleaning - dt);
+    s.panels = clamp(s.panels + (100 / CLEANING_SECONDS) * dt);
+    if (s.cleaning === 0) { s.panels = 100; addLog(s, "🧽", "Solar panels fully cleaned — maximum efficiency restored"); }
+  }
+  s.solar = solarOutput(s, wasCleaning);
   s.energy = clamp(s.energy + s.solar * k); s.solarMade += s.solar * k;
-  s.panels = clamp(s.panels - (dusty ? 35 : 10) * k);
+  if (!wasCleaning) s.panels = clamp(s.panels - (dusty ? 35 : 10) * k);
   s.lifeSupport = clamp(s.lifeSupport - (dusty ? 14 : 9) * k);
 
   // Consumers, in priority order. Each facility stops independently without enough energy.
