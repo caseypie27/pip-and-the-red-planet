@@ -245,3 +245,62 @@ export function drawDynamic(ctx: CanvasRenderingContext2D, t: number, visited: S
     ctx.fillStyle = ink; ctx.font = "bold 18px sans-serif"; ctx.textAlign = "center"; ctx.fillText("!", l.x, yy + 6);
   }
 }
+
+/** Player-built facilities and construction states, drawn above the static base. */
+export function drawFacilities(ctx: CanvasRenderingContext2D, facilities: Facility[], t: number) {
+  for (const f of facilities) {
+    if (!f.built) continue;
+    const kind = f.kind === "oxygen" ? "dome" : f.kind;
+    ctx.save();
+    if (f.remaining > 0) ctx.globalAlpha = 0.48;
+    drawBuilding(ctx, { kind, x: f.x, y: f.y, w: f.w, h: f.h });
+    ctx.restore();
+    if (f.remaining > 0) {
+      const pulse = 0.55 + Math.sin(t * 6) * 0.2;
+      ctx.save();
+      ctx.strokeStyle = `rgba(250,204,21,${pulse})`; ctx.lineWidth = 5; ctx.setLineDash([14, 10]);
+      ctx.strokeRect(f.x - 8, f.y - 8, f.w + 16, f.h + 16); ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(30,27,58,0.85)"; ctx.fillRect(f.x, f.y + f.h + 12, f.w, 18);
+      ctx.fillStyle = "#facc15"; ctx.fillRect(f.x + 2, f.y + f.h + 14, (f.w - 4) * Math.max(0.03, 1 - f.remaining / BUILD_DEFS[f.kind as BuildableKind].duration), 14);
+      ctx.fillStyle = "#fff"; ctx.font = "bold 18px Nunito, sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("BUILDING", f.x + f.w / 2, f.y - 18);
+      ctx.restore();
+    }
+  }
+  for (const f of facilities) {
+    if (f.remaining > 0) continue;
+    if (!f.enabled || f.damaged) {
+      ctx.save();
+      ctx.fillStyle = f.damaged ? "rgba(239,68,68,0.18)" : "rgba(30,27,58,0.25)";
+      ctx.fillRect(f.x, f.y, f.w, f.h);
+      ctx.fillStyle = f.damaged ? "#ef4444" : "#e5e7eb";
+      ctx.strokeStyle = "#1e1b3a"; ctx.lineWidth = 3; ctx.font = "bold 18px Nunito, sans-serif"; ctx.textAlign = "center";
+      const label = f.damaged ? "🔧 REPAIR" : "OFF";
+      ctx.strokeText(label, f.x + f.w / 2, f.y + 24); ctx.fillText(label, f.x + f.w / 2, f.y + 24);
+      ctx.restore();
+    }
+  }
+}
+
+export function drawPlacementGhost(ctx: CanvasRenderingContext2D, kind: BuildableKind, x: number, y: number, valid: boolean, t: number) {
+  const rect = placementRect(kind, x, y), d = BUILD_DEFS[kind];
+  ctx.save();
+  ctx.globalAlpha = 0.55 + Math.sin(t * 5) * 0.08;
+  drawBuilding(ctx, { kind: kind === "oxygen" ? "dome" : kind, ...rect });
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = valid ? "#4ade80" : "#ef4444"; ctx.lineWidth = 6; ctx.setLineDash([16, 10]);
+  ctx.strokeRect(rect.x - 8, rect.y - 8, rect.w + 16, rect.h + 16); ctx.setLineDash([]);
+  ctx.fillStyle = valid ? "rgba(74,222,128,0.2)" : "rgba(239,68,68,0.22)";
+  ctx.fillRect(rect.x - 44, rect.y - 44, rect.w + 88, rect.h + 88);
+  ctx.fillStyle = valid ? "#4ade80" : "#ef4444"; ctx.strokeStyle = "#1e1b3a"; ctx.lineWidth = 4;
+  ctx.font = "bold 22px Nunito, sans-serif"; ctx.textAlign = "center";
+  const label = `${d.icon} ${valid ? "VALID SITE" : "INVALID SITE"}`;
+  ctx.strokeText(label, x, rect.y - 20); ctx.fillText(label, x, rect.y - 20);
+  ctx.restore();
+}
+
+export function drawValidSiteMarker(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.save(); ctx.fillStyle = "rgba(74,222,128,0.32)"; ctx.strokeStyle = "rgba(30,27,58,0.45)"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(x + 5, y); ctx.moveTo(x, y - 5); ctx.lineTo(x, y + 5); ctx.stroke(); ctx.restore();
+}
