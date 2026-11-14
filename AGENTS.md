@@ -28,3 +28,5 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+- Survival simulation rules live in pure functions in src/game/sim.ts (tested in sim.test.ts); UI only calls tick/act so balance stays testable.
