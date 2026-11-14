@@ -1,4 +1,5 @@
 /** Mars survival simulation: pure state + tick + actions. All rates are "per Sol". */
+import { BUILD_DEFS, BUILDABLE_KINDS, canPlace, facilityIcon, facilityName, initialFacilities, placementRect, type BuildableKind, type Facility } from "./facilities";
 export type EventKind = "clear" | "dust" | "flare" | "storm-flare";
 export const SOL_EVENTS: EventKind[] = ["clear", "clear", "dust", "clear", "flare", "clear", "dust", "flare", "clear", "storm-flare"];
 export const EVENT_INFO: Record<EventKind, { label: string; icon: string; tip: string }> = {
@@ -24,6 +25,7 @@ export interface Sim {
   broken: Breakable | null; discoveries: string[]; reviewed: string[]; extraSites: string[];
   achievements: string[]; foodMade: number; log: LogEntry[];
   waterMade: number; solarMade: number; energyUsed: number; peakExposure: number; powerOut: number; damage: Record<string, number>;
+  facilities: Facility[]; nextFacility: number; facilityUnpowered: string[];
 }
 export interface LogEntry { sol: number; icon: string; text: string }
 export type Breakable = "oxygen" | "greenhouse" | "drill" | "panels";
@@ -45,7 +47,7 @@ export function newSim(): Sim {
     materials: 40, lifeSupport: 80, panels: 100, systems: { oxygen: true, greenhouse: true, drill: false }, scavenged: false, unpowered: [], solar: 0,
     usage: 0, foodRate: 0, waterRate: 0, research: [], drillHigh: false, capacity: 100, objective: 0,
     seed: Math.floor(Math.random() * 1000), event: null, eventSol: 1, eventsHandled: 0, broken: null, discoveries: [], reviewed: [], extraSites: [],
-    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
+    achievements: [], foodMade: 0, waterMade: 0, solarMade: 0, energyUsed: 0, peakExposure: 0, powerOut: 0, damage: {}, facilities: initialFacilities(), nextFacility: 1, facilityUnpowered: [], log: [{ sol: 1, icon: "🚀", text: "Landed on Mars. Mission begins!" }] };
 }
 
 export const RATES = {
