@@ -8,7 +8,7 @@ import type { Character, Dir, Landmark } from "@/game/types";
 export interface InputState { x: number; y: number }
 
 export interface PlacementCursor { kind: BuildableKind; x: number; y: number; focusX: number; focusY: number }
-interface Props { character: Character; input: React.MutableRefObject<InputState>; onDiscover: (l: Landmark) => void; posRef?: React.MutableRefObject<{ x: number; y: number }>; markersRef?: React.MutableRefObject<{ x: number; y: number }[]>; speedRef?: React.MutableRefObject<number>; viewRef?: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; onWorldClick?: (x: number, y: number) => void; fxRef?: React.MutableRefObject<Fx>; navRef?: React.MutableRefObject<Nav | null>; facilitiesRef?: React.MutableRefObject<Facility[]>; placementRef?: React.MutableRefObject<PlacementCursor | null>; onPlacement?: (x: number, y: number) => void }
+interface Props { character: Character; input: React.MutableRefObject<InputState>; onDiscover: (l: Landmark) => void; posRef?: React.MutableRefObject<{ x: number; y: number }>; markersRef?: React.MutableRefObject<{ x: number; y: number }[]>; speedRef?: React.MutableRefObject<number>; viewRef?: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; onWorldClick?: (x: number, y: number) => void; fxRef?: React.MutableRefObject<Fx>; navRef?: React.MutableRefObject<Nav | null>; facilitiesRef?: React.MutableRefObject<Facility[]>; placementRef?: React.MutableRefObject<PlacementCursor | null>; onPlacement?: (x: number, y: number) => void; solarRef?: React.MutableRefObject<{ cleanliness: number; progress: number | null }> }
 
 const SPEED = 260;
 const R = 16;

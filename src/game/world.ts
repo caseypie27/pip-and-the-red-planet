@@ -95,7 +95,7 @@ export function renderStaticWorld(): HTMLCanvasElement {
   ctx.fillStyle = "#4b5563"; ctx.beginPath(); ctx.arc(1645, 1745, 130, 0, 7); ctx.fill(); ctx.stroke();
   ctx.strokeStyle = "#facc15"; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(1645, 1745, 110, 0, 7); ctx.stroke();
   ctx.lineWidth = 2.5; ctx.strokeStyle = ink;
-  for (const b of BUILDINGS) drawBuilding(ctx, b);
+  for (const b of BUILDINGS) if (b.kind !== "solar") drawBuilding(ctx, b);
   for (const site of SITES) drawSite(ctx, site.kind, site.x, site.y);
   return cv;
 }

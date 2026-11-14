@@ -1,3 +1,4 @@
+import { initialFacilities } from "./facilities";
 import { newSim, type Sim } from "./sim";
 import type { Character } from "./types";
 const KEY = "mbb.character";

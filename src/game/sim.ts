@@ -16,7 +16,7 @@ export interface Sim {
   sol: number; time: number; status: "day" | "summary" | "won" | "lost";
   oxygen: number; water: number; food: number; energy: number;
   shield: number; condition: number; exposure: number;
-  materials: number; lifeSupport: number; panels: number;
+  materials: number; lifeSupport: number; panels: number; cleaning: number;
   systems: Record<SystemId, boolean>; scavenged: boolean;
   unpowered: SystemId[]; solar: number;
   usage: number; foodRate: number; waterRate: number;
@@ -25,7 +25,7 @@ export interface Sim {
   broken: Breakable | null; discoveries: string[]; reviewed: string[]; extraSites: string[];
   achievements: string[]; foodMade: number; log: LogEntry[];
   waterMade: number; solarMade: number; energyUsed: number; peakExposure: number; powerOut: number; damage: Record<string, number>;
-  facilities: Facility[]; nextFacility: number; facilityUnpowered: string[];
+  facilities: Facility[]; nextFacility: number; facilityUnpowered: string[]; failureCause: string | null;
 }
 export interface LogEntry { sol: number; icon: string; text: string }
 export type Breakable = "oxygen" | "greenhouse" | "drill" | "panels";
