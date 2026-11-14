@@ -5,7 +5,7 @@ import { Joystick } from "./Joystick";
 import { PipPortrait } from "./Pip";
 import { CharacterSelect } from "./CharacterSelect";
 import { BUILDINGS, LANDMARKS } from "@/game/world";
-import { facilityName, stationForFacility, type BuildableKind, type Facility } from "@/game/facilities";
+import { canPlace, facilityName, stationForFacility, type BuildableKind, type Facility } from "@/game/facilities";
 import { loadCharacter, loadSim, resetGame, saveCharacter, saveSim } from "@/game/storage";
 import { beep, play, soundForAction, unlockAudio, getSettings, setSettings, type AudioSettings } from "@/game/sound";
 import { newFx, type Nav } from "@/game/fx";
@@ -215,13 +215,18 @@ export function MarsGame() {
   const restart = () => { const s = newSim(); toastRef.current = 0; setBriefing(true); setSim(s); saveSim(s); setPip(WELCOME); setBanner((b) => b + 1); };
   const cancelPlacement = () => { placementRef.current = null; setPlacement(null); input.current = { x: 0, y: 0 }; };
   const chooseBuild = (kind: BuildableKind) => {
-    const p = { kind, x: view.current.cx, y: view.current.cy };
+    let x = view.current.cx, y = view.current.cy, best = Number.POSITIVE_INFINITY;
+    for (let sy = 480; sy <= 2200; sy += 80) for (let sx = 200; sx <= 3000; sx += 80) {
+      const distance = Math.hypot(sx - view.current.cx, sy - view.current.cy);
+      if (distance < best && canPlace(facilitiesRef.current, kind, sx, sy).ok) { x = sx; y = sy; best = distance; }
+    }
+    const p = { kind, x, y, focusX: x, focusY: y };
     placementRef.current = p; setPlacement(p); setBuildOpen(false); setFacilitiesOpen(false); setOpen(false);
-    setPip("Choose a green site on the open plains. Tap or click to move the preview, then Confirm build. Nothing is spent yet.");
+    setPip("I found the nearest suitable plain! Tap or click another site to move the preview, then Confirm build. Nothing is spent yet.");
   };
   const confirmBuild = () => {
     const p = placementRef.current; if (!p) return;
-    if (doAction(`build:${p.kind}:${Math.round(p.x)}:${Math.round(p.y)}`)) { play("upgrade", "construction"); cancelPlacement(); setBuildOpen(false); }
+    if (doAction(`build:${p.kind}:${Math.round(p.x)}:${Math.round(p.y)}`)) { cancelPlacement(); setBuildOpen(false); }
   };
   const facilityList = facilityViews(sim);
   const res = [

@@ -86,8 +86,11 @@ export function facilityViews(s: Sim): FacilityView[] {
   return s.facilities.map((f) => {
     const def = BUILD_DEFS[f.kind as BuildableKind];
     const status: FacilityStatus = facilityDamaged(s, f) ? "damaged" : f.remaining > 0 ? "construction" : !facilitySwitchedOn(s, f) ? "inactive" : s.facilityUnpowered.includes(f.id) ? "unpowered" : "operational";
+    const baseDescription = !f.built && f.kind === "hab" ? "Crew living quarters. Build extra modules to reduce crew supply use."
+      : !f.built && f.kind === "storage" ? "The base supply depot. Build extra units to add 30 capacity each."
+      : !f.built && f.kind === "shelter" ? "Thick walls protect the crew. Build extra shelters to add 8% shielding each." : null;
     return { ...f, name: facilityName(f), icon: facilityIcon(f.kind), status, essential: def?.essential ?? false,
-      controllable: def?.controllable ?? false, description: def?.description ?? (f.kind === "rover" ? "Collects building materials once each Sol." : f.kind === "antenna" ? "Keeps the base connected to Earth." : "The crew's arrival vehicle and landing-zone landmark."), warning: def?.warning };
+      controllable: def?.controllable ?? false, description: baseDescription ?? def?.description ?? (f.kind === "rover" ? "Collects building materials once each Sol." : f.kind === "antenna" ? "Keeps the base connected to Earth." : "The crew's arrival vehicle and landing-zone landmark."), warning: def?.warning };
   });
 }
 

@@ -7,7 +7,7 @@ import type { Character, Dir, Landmark } from "@/game/types";
 
 export interface InputState { x: number; y: number }
 
-export interface PlacementCursor { kind: BuildableKind; x: number; y: number }
+export interface PlacementCursor { kind: BuildableKind; x: number; y: number; focusX: number; focusY: number }
 interface Props { character: Character; input: React.MutableRefObject<InputState>; onDiscover: (l: Landmark) => void; posRef?: React.MutableRefObject<{ x: number; y: number }>; markersRef?: React.MutableRefObject<{ x: number; y: number }[]>; speedRef?: React.MutableRefObject<number>; viewRef?: React.MutableRefObject<{ cx: number; cy: number; zoom: number }>; onWorldClick?: (x: number, y: number) => void; fxRef?: React.MutableRefObject<Fx>; navRef?: React.MutableRefObject<Nav | null>; facilitiesRef?: React.MutableRefObject<Facility[]>; placementRef?: React.MutableRefObject<PlacementCursor | null>; onPlacement?: (x: number, y: number) => void }
 
 const SPEED = 260;
@@ -52,7 +52,7 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
     const click = (e: PointerEvent) => {
       const p = worldPoint(e); if (!p) return;
       if (placementRef?.current) {
-        placementRef.current.x = p.x; placementRef.current.y = p.y;
+        placementRef.current.x = p.x; placementRef.current.y = p.y; placementRef.current.focusX = p.x; placementRef.current.focusY = p.y;
         placementCallbackRef.current?.(p.x, p.y);
         return;
       }
@@ -96,7 +96,8 @@ export function GameCanvas({ character, input, onDiscover, posRef, markersRef, s
       const vw = window.innerWidth, vh = window.innerHeight;
       const zoom = Math.max(0.55, Math.min(1.15, Math.min(vw, vh) / 720));
       const hw = vw / 2 / zoom, hh = vh / 2 / zoom;
-      cam.x += (p.x - cam.x) * Math.min(1, dt * 6); cam.y += (p.y - 40 - cam.y) * Math.min(1, dt * 6);
+      const cameraTarget = placementRef?.current;
+      cam.x += ((cameraTarget?.focusX ?? p.x) - cam.x) * Math.min(1, dt * 6); cam.y += ((cameraTarget?.focusY ?? (p.y - 40)) - cam.y) * Math.min(1, dt * 6);
       const cx = Math.max(hw, Math.min(WORLD_W - hw, cam.x)), cy = Math.max(hh, Math.min(WORLD_H - hh, cam.y));
       if (viewRef) { viewRef.current.cx = cx; viewRef.current.cy = cy; viewRef.current.zoom = zoom; }
       const dpr = canvas.width / vw;
