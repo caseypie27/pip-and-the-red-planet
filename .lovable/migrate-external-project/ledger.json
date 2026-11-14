@@ -1,0 +1,2 @@
+[{"capability":"code","source":"zip","outcome":"migrate","status":"verified","next_action":"none"},
+{"capability":"database/auth","source":"none (browser localStorage only)","outcome":"not applicable","status":"verified","next_action":"none"}]
